@@ -16,6 +16,17 @@ namespace devlog {
 /** Printf to Serial and to the ring buffer. */
 void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/**
+ * Route ESP-IDF's own logging into the ring buffer instead of stdout.
+ *
+ * IDF logs via vprintf -> stdout -> USB CDC, which Arduino's
+ * Serial.setTxTimeoutMs() does not govern. Those writes block whenever the host
+ * is not draining the port, and the Wi-Fi driver is chatty enough during
+ * association to stall startup for over a minute. Capturing them here removes
+ * the dependency on anything being attached.
+ */
+void captureIdfLogs();
+
 /** Move pending lines out for upload. Returns how many were written. */
 size_t drain(String* out, size_t max);
 

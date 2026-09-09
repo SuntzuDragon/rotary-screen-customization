@@ -360,7 +360,9 @@ void setup() {
   Serial.setTxTimeoutMs(0);
 #endif
 
-  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  // Take IDF's logging off stdout/USB entirely -- it is the remaining path that
+  // can block on an undrained port. Its output still reaches the ring buffer.
+  devlog::captureIdfLogs();
   esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);
   pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
@@ -408,7 +410,9 @@ void setup() {
   Serial.setTxTimeoutMs(0);
 #endif
 
-  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  // Take IDF's logging off stdout/USB entirely -- it is the remaining path that
+  // can block on an undrained port. Its output still reaches the ring buffer.
+  devlog::captureIdfLogs();
   esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);
   devlog::logf("[diag] backlight-only build: GPIO46 1s on / 1s off, forever\n");
@@ -443,7 +447,9 @@ void setup() {
   Serial.setTxTimeoutMs(0);
 #endif
 
-  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  // Take IDF's logging off stdout/USB entirely -- it is the remaining path that
+  // can block on an undrained port. Its output still reaches the ring buffer.
+  devlog::captureIdfLogs();
   esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);  // let the USB CDC host attach before the first line
   devlog::logf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,

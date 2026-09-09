@@ -1,5 +1,6 @@
 #include "devlog.h"
 
+#include <esp_log.h>
 #include <stdarg.h>
 
 namespace {
@@ -12,7 +13,21 @@ volatile size_t gTail = 0;   // next unsent slot
 portMUX_TYPE gMux = portMUX_INITIALIZER_UNLOCKED;
 }  // namespace
 
+namespace {
+
+/** Feed IDF log output into the ring; never touch stdout. */
+int idfVprintf(const char* fmt, va_list args) {
+  char line[kLineLen];
+  const int n = vsnprintf(line, sizeof(line), fmt, args);
+  devlog::logf("%s", line);
+  return n;
+}
+
+}  // namespace
+
 namespace devlog {
+
+void captureIdfLogs() { esp_log_set_vprintf(idfVprintf); }
 
 void logf(const char* fmt, ...) {
   char line[kLineLen];
