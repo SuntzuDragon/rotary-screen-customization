@@ -3,6 +3,7 @@
 #include <lvgl.h>
 
 #include "board_pins.h"
+#include "fw_version.h"
 #include "backlight.h"
 #include "display.h"
 #include "model/stats.h"

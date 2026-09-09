@@ -7,6 +7,7 @@
 #include <time.h>
 
 #include "certs.h"
+#include "fw_version.h"
 #include "settings.h"
 
 namespace {

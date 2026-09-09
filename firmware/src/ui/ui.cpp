@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include "star_img.h"
+#include "fw_version.h"
 
 #include <math.h>
 #include <time.h>

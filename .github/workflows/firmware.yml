@@ -44,11 +44,18 @@ jobs:
             echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build
+      # The version is a generated header rather than a CLI flag: `pio run` has
+      # no --project-option, and a header keeps local and CI builds identical.
+      - name: Stamp version
         working-directory: firmware
         run: |
-          pio run -e crowpanel128 \
-            --project-option="build_flags=\${env:crowpanel128.build_flags} -DFW_VERSION='\"${{ steps.ver.outputs.value }}\"'"
+          printf '#pragma once\n#define FW_VERSION "%s"\n' "${{ steps.ver.outputs.value }}" \
+            > include/fw_version.h
+          cat include/fw_version.h
+
+      - name: Build
+        working-directory: firmware
+        run: pio run -e crowpanel128
 
       # One merged image from 0x0 means the browser flasher needs a single part
       # and no partition offset arithmetic.
