@@ -290,6 +290,15 @@ function landing() {
     status.replaceChildren(note('Waiting for you to pick a port…'));
     try {
       const conn = await connect((msg) => status.replaceChildren(note(msg)));
+      if (conn.nextUrl) {
+        // Already provisioned: adopt the session and go, no Wi-Fi step needed.
+        const adopted = adoptSession(conn.nextUrl);
+        await conn.close();
+        if (adopted) {
+          void configView(adopted);
+          return;
+        }
+      }
       provisionView(conn);
     } catch (err) {
       status.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
@@ -339,27 +348,26 @@ function provisionView(conn: Connection) {
 
   // Networks come from the DEVICE's own scan, so the list is what it can
   // actually reach -- not what this laptop can see.
-  const stop = conn.improv.subscribeSSIDs((ssids: Ssid[] | null) => {
-    if (!ssids) {
-      select.replaceChildren(el('option', { value: '' }, 'Device cannot scan — type an SSID'));
-      select.replaceWith(
-        Object.assign(el('input', { class: 'input', placeholder: 'Network name' }), {
-          id: 'ssid-manual',
-        }),
+  let manual: HTMLInputElement | null = null;
+  const loadNetworks = async () => {
+    try {
+      const ssids = await conn.improv.scan();
+      if (ssids.length === 0) throw new Error('no networks reported');
+      select.replaceChildren(
+        ...ssids.map((s) =>
+          el('option', { value: s.name }, `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`),
+        ),
       );
-      return;
+    } catch {
+      // Fall back to typing it: a device that cannot scan can still be told.
+      manual = el('input', { class: 'input', placeholder: 'Network name' }) as HTMLInputElement;
+      select.replaceWith(manual);
     }
-    const current = select.value;
-    select.replaceChildren(
-      ...ssids.map((s) =>
-        el('option', { value: s.name }, `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`),
-      ),
-    );
-    if (current) select.value = current;
-  });
+  };
+  void loadNetworks();
 
   go.onclick = async () => {
-    const ssid = select.value || (document.getElementById('ssid-manual') as HTMLInputElement)?.value;
+    const ssid = manual ? manual.value : select.value;
     if (!ssid) {
       status.replaceChildren(note('Pick a network first.', 'err'));
       return;
@@ -367,7 +375,6 @@ function provisionView(conn: Connection) {
     go.disabled = true;
     status.replaceChildren(note('Connecting…'));
     try {
-      await stop();
       const next = await provision(conn, ssid, password.value);
       if (next) {
         status.replaceChildren(note('Connected. Opening settings…', 'ok'));
