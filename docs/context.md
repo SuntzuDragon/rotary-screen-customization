@@ -212,11 +212,14 @@ internally, so all 192 still compile) but shrank the binary by **63KB**.
 
 ## Operational notes
 
-- **Device id: `ph7fshy7`** (the physical unit). Ids are minted on first boot
-  and stored in NVS; an app-only flash at `0x10000` preserves them, a full
-  merged-image flash does not.
-- **`multitest1`** is a throwaway device row used to verify multi-account
-  isolation. Safe to delete.
+- **The device id changes whenever NVS is erased** — it is minted on first boot
+  and stored there, so an app-only flash at `0x10000` keeps it and a factory
+  reset does not. `SELECT id, last_seen FROM devices` is the way to find the
+  current one; it has been `jak7hkb9`, `ph7fshy7` and `km35vycf` so far. Don't
+  hard-code it anywhere.
+- `last_seen` is written at most every 15 minutes, so a device that looks stale
+  by that column may be perfectly healthy — `device_logs` ships far more often
+  and is the better liveness check.
 - Secrets: `GH_TOKEN` (fine-grained, public-repo read), `ENC_KEY` (base64 32
   bytes, AES-GCM for user PATs). GitHub Actions needs `CLOUDFLARE_API_TOKEN`
   with **Workers + KV + D1 Edit** — D1 was missing initially and failed the
@@ -242,6 +245,9 @@ internally, so all 192 still compile) but shrank the binary by **63KB**.
 PSRAM, encoder (both directions), knob press, capacitive touch, Wi-Fi, NTP, TLS,
 provisioning over USB, live GitHub stats, config push, firmware release
 pipeline, browser flashing with progress and live log, factory reset.
+
+The newest tag is **v0.2.7**, and `main` is ahead of it: the 10s poll interval
+and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 
 **Not yet verified:**
 
