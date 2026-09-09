@@ -166,3 +166,57 @@ build log to point at it.
 Fixed with `board_build.arduino.memory_type = qio_opi` in `platformio.ini`. The
 allocations now also fall back to internal RAM and log a line, so a future
 misconfiguration degrades to a slow screen rather than a silent blank one.
+
+## 11. First flash: two traps, both found by bisection
+
+**Trap 1 — flash mode override caused a silent boot loop.** Flashing with
+`--flash-mode qio` produced:
+
+```
+rst:0x7 (TG0WDT_SYS_RST),boot:0x18 (SPI_FAST_FLASH_BOOT)
+mode:QIO, clock div:1
+load:0x3fce3808,len:0x44c
+ets_loader.c 78
+      ... repeating forever, no app output
+```
+
+The toolchain stamps **DIO** into the bootloader header (`bootloader.bin` byte 2
+= `0x02`), and esptool's `--flash-mode` *rewrites that byte*. The ROM then read
+flash in the wrong mode and watchdogged before reaching the app.
+
+Found by bisection rather than inspection: flashing Elecrow's published factory
+firmware booted cleanly, which proved the hardware and the flashing procedure
+were fine and isolated the fault to our build. `pio run -t upload -v` then showed
+PlatformIO's own arguments — `--flash_mode dio`. `platformio.ini` now says `dio`
+so config and reality agree.
+
+**Trap 2 — TinyUSB broke reflashing.** With `ARDUINO_USB_MODE=0` the app takes
+over USB, the port re-enumerates (COM3 -> COM4), and esptool can no longer
+auto-reset: `Failed to connect: No serial data received`.
+
+Switched to `ARDUINO_USB_MODE=1` (the hardware USB-Serial/JTAG peripheral). It is
+still a CDC port, so Web Serial and Improv work exactly the same, but the port
+stays put and auto-reset keeps working. If a build ever does take over USB again,
+a **1200-baud touch with DTR low** reboots it into the ROM bootloader without
+touching the BOOT button — `rotary-flash/touch1200.py`.
+
+**Confirmed working on hardware:**
+
+```
+[boot] rotary-stats 0.1.0  reset=0
+[boot] psram=8386295 bytes free, heap=305668 bytes free
+[boot] display init
+[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi
+[alive] 5s heap=300188 enc=0
+```
+
+PSRAM initialises (vindicating `qio_opi`), display init returns, LVGL runs, and
+the heap is stable across heartbeats. The firmware now logs a boot banner,
+a 5-second heartbeat, and every encoder/press/swipe event -- added after
+debugging the boot loop blind through a build that printed nothing.
+
+**Recovery:** Elecrow publishes the complete factory image set. It is staged
+locally with a restore command in `rotary-flash/factory-restore/RESTORE.txt`.
+(A full 16MB `read-flash` backup was attempted first and failed with "Packet
+content transfer stopped" — long reads over USB-Serial/JTAG stall. The vendor
+image is the better recovery path anyway.)

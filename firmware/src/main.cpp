@@ -150,8 +150,15 @@ void loadDemoStats() {
 
 void setup() {
   Serial.begin(115200);
+  delay(300);  // let the USB CDC host attach before the first line
+  Serial.printf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
+                static_cast<int>(esp_reset_reason()));
+  Serial.printf("[boot] psram=%u bytes free, heap=%u bytes free\n",
+                static_cast<unsigned>(ESP.getFreePsram()),
+                static_cast<unsigned>(ESP.getFreeHeap()));
   settings::begin();
 
+  Serial.println("[boot] display init");
   gLcd.init();
   gLcd.setRotation(0);
   gLcd.setBrightness(200);
@@ -170,6 +177,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), onEncoderEdge, CHANGE);
 
 #ifdef DEMO_MODE
+  Serial.println("[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi");
   loadDemoStats();
   ui::setStats(gStats);
   return;
@@ -211,7 +219,18 @@ void loop() {
   const int32_t detents = (steps - consumed) / 4;
   if (detents != 0) {
     consumed += detents * 4;
+    Serial.printf("[input] rotate %+ld\n", static_cast<long>(detents));
     ui::onRotate(detents > 0 ? 1 : -1);
+  }
+
+  // Heartbeat + input echo, so the demo build can be diagnosed over serial
+  // without being able to see the panel.
+  static uint32_t lastBeat = 0;
+  if (millis() - lastBeat > 5000) {
+    lastBeat = millis();
+    Serial.printf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<long>(gEncoderSteps));
   }
 
   static uint32_t lastSwitch = 0;
@@ -219,6 +238,7 @@ void loop() {
   const bool switchNow = digitalRead(PIN_ENC_SW);
   if (switchWas && !switchNow && millis() - lastSwitch > 220) {
     lastSwitch = millis();
+    Serial.println("[input] press");
     ui::onPress();
   }
   switchWas = switchNow;
@@ -229,6 +249,7 @@ void loop() {
     const uint8_t g = readTouchRegister(0x01);
     if (g == 3 || g == 4) {
       lastGesture = millis();
+      Serial.printf("[input] swipe gesture=%u\n", static_cast<unsigned>(g));
       ui::onPress();
     }
   }
