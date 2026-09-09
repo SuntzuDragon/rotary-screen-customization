@@ -508,6 +508,10 @@ void setup() {
 
   if (settings::hasWifi()) {
     gImprov.setState(ImprovSerial::STATE_PROVISIONED);
+    // Move off the splash immediately. Waiting for the network task to report
+    // its first phase means any slow start leaves the wordmark on screen with
+    // no indication anything is happening -- which reads as a hang.
+    setPhase(NetPhase::Connecting, settings::ssid().c_str());
   } else {
     gImprov.setState(ImprovSerial::STATE_AUTHORIZED);
     String host = settings::baseUrl();
