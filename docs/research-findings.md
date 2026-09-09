@@ -267,3 +267,30 @@ transition from "no gesture".
 
 Display, backlight, power rails, PSRAM, encoder, knob press and capacitive touch
 all confirmed working on the real board.
+
+## 13. Opening the serial port resets the board
+
+Every diagnostic capture was rebooting the device. pyserial (and esptool, and a
+browser opening the port for Improv) asserts DTR/RTS on open, which on this
+board pulls the ESP32-S3 into reset. The device would replay its whole boot
+sequence -- Connecting, Syncing clock, Registering -- and look like it was stuck
+or crash-looping when it was simply starting over.
+
+For **passive** observation, clear both lines before opening:
+
+```python
+s = serial.Serial()
+s.port, s.baudrate, s.timeout = port, 115200, 0.2
+s.dtr = False
+s.rts = False
+s.open()          # no reset
+```
+
+Proof: consecutive captures showed uptime continuing (67s -> 82s -> 92s) with no
+boot banner, where previously every capture restarted the count.
+
+The same applies to the browser: clicking "Connect device over USB" resets the
+board, so the screen returning to the boot sequence at that moment is expected
+behaviour, not a failure. It is also why Improv must be answered from inside the
+blocking network path (see `uiYield`) -- the browser starts probing while the
+device is still booting from the reset that the probe itself caused.
