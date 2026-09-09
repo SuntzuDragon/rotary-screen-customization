@@ -404,3 +404,46 @@ reports in): **6 seconds** from reset to online, against ~84-105s before.
 The lesson worth keeping: when a symptom vanishes under observation, the
 observation is part of the system. Measure from the far side — here, the Worker's
 `lastSeen` — rather than from the cable that is itself the variable.
+
+## 18. Root cause: Improv's flush() froze the device at boot
+
+`ImprovSerial::sendPacket()` ended with `_io->flush()`.
+
+`Serial.setTxTimeoutMs(0)` makes `write()` non-blocking, but it does **not**
+govern `flush()`, which waits for the USB TX buffer to drain. With no host
+attached that buffer never drains, so the first Improv packet — sent from
+`gImprov.setState()` during `setup()` — blocked the entire device until
+something opened the port.
+
+Every symptom traced to that one line:
+
+| Symptom | Actual cause |
+|---|---|
+| Frozen on the splash screen | `setup()` never got past Improv init |
+| "Wi-Fi takes 80-230 seconds" | Wi-Fi associates in **199ms** once reached |
+| `delay(100)` appearing to take 126s | Misread; it took exactly 100ms |
+| "It switches to registering when you investigate" | Attaching drained the buffer and released the flush |
+
+**Measured:** online **7 seconds** after reset with nothing attached, against
+228s before. Verified from the server side (the Worker's `lastSeen`), so the
+measurement could not itself release the block.
+
+### How it was found
+
+Not by reasoning — four plausible theories (Wi-Fi timing, serial write
+timeouts, IDF logging, task starvation) were each wrong, and each "fix" only
+moved where the block landed. What settled it was **timestamping the ring
+buffer**: once every line carried an uptime, the data showed nothing at all ran
+before t=228s and everything ran at correct speed after. That is the signature
+of a hard block, not a slow subsystem, and it pointed directly at the only call
+that waits on the host.
+
+Two pieces of infrastructure made that possible, both worth keeping:
+
+- a log ring shipped over Wi-Fi, so the device is observable without the cable
+  that is itself the variable
+- timestamps on every line, so a gap is measurable rather than inferred
+
+The user's observation — *"it always switches to registering after you start
+investigating"* — was the key input. A symptom that vanishes under observation
+means the observation is part of the system.

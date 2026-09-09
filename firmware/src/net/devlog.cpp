@@ -30,11 +30,17 @@ namespace devlog {
 void captureIdfLogs() { esp_log_set_vprintf(idfVprintf); }
 
 void logf(const char* fmt, ...) {
-  char line[kLineLen];
+  char body[kLineLen];
   va_list args;
   va_start(args, fmt);
-  vsnprintf(line, sizeof(line), fmt, args);
+  vsnprintf(body, sizeof(body), fmt, args);
   va_end(args);
+
+  // Stamp every line with uptime. Without this the ring records order but not
+  // timing, and the whole question here is *when* each step happened -- a gap
+  // between two adjacent lines is the entire finding.
+  char line[kLineLen];
+  snprintf(line, sizeof(line), "%8lu %s", static_cast<unsigned long>(millis()), body);
 
   // Only write to the cable when something is actually listening.
   //

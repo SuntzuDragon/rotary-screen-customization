@@ -57,7 +57,19 @@ void ImprovSerial::sendPacket(uint8_t type, const uint8_t* data, size_t len) {
   out[n++] = sum;
 
   _io->write(out, n);
-  _io->flush();
+
+  // No flush().
+  //
+  // flush() waits for the USB TX buffer to drain, and with no host attached it
+  // never drains -- so this call blocked the entire device at boot, from the
+  // moment setState() sent its first packet until something opened the port.
+  // Every downstream symptom came from here: a frozen splash screen, Wi-Fi
+  // that appeared to take two minutes, and a device that sprang to life the
+  // instant anyone looked at it. setTxTimeoutMs(0) makes write() safe, but it
+  // does not govern flush().
+  //
+  // The write alone is sufficient: when a host *is* attached (the only time
+  // Improv is in use) the driver drains it immediately.
 }
 
 void ImprovSerial::sendCurrentState() {

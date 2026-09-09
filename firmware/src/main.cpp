@@ -584,11 +584,10 @@ void loop() {
   static uint32_t lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    // Serial only: the heartbeat is for watching a cable, and shipping it would
-    // flush the boot and network lines out of the remote ring buffer.
-    Serial.printf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
-                  static_cast<unsigned>(ESP.getFreeHeap()),
-                  static_cast<long>(gEncoderSteps));
+    // In the ring, not just on the cable: a gap between heartbeats is how a
+    // stalled task shows up when nothing is attached to watch it.
+    devlog::logf("[alive] heap=%u enc=%ld\n", static_cast<unsigned>(ESP.getFreeHeap()),
+                 static_cast<long>(gEncoderSteps));
   }
 
   static uint32_t lastSwitch = 0;
