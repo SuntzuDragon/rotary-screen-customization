@@ -137,12 +137,15 @@ function deckSummary(ctx: Ctx2D, d: DevicePayload) {
 
   const hero = compact(d.p.contrib);
   const px = fitText(ctx, hero, widthAt(CY, 14), 62, 700);
+  const heroBaseline = CY + px * 0.30;
   ctx.fillStyle = '#fff';
-  ctx.fillText(hero, CX, CY + px * 0.34);
+  ctx.fillText(hero, CX, heroBaseline);
 
+  // Sits clear of the hero's baseline rather than at a fixed offset, so it
+  // cannot collide when a larger contribution count shrinks the number.
   font(ctx, 12, 700);
   ctx.fillStyle = dim(accent, 0.95);
-  ctx.fillText('CONTRIBUTIONS', CX, CY + 32);
+  ctx.fillText('CONTRIBUTIONS', CX, heroBaseline + 15);
 
   font(ctx, 16, 600);
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -156,15 +159,15 @@ function deckSummary(ctx: Ctx2D, d: DevicePayload) {
   const starR = 8;
   const groupW = starR * 2 + 5 + countW;
   const left = CX - groupW / 2;
-  drawStar(ctx, left + starR, CY + 58, starR, accent);
+  drawStar(ctx, left + starR, CY + 61, starR, accent);
   ctx.textAlign = 'left';
   ctx.fillStyle = '#fff';
-  ctx.fillText(countText, left + starR * 2 + 5, CY + 65);
+  ctx.fillText(countText, left + starR * 2 + 5, CY + 68);
   ctx.textAlign = 'center';
 
   font(ctx, 12, 600);
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.fillText(`${d.p.followers} FOLLOWERS`, CX, CY + 86);
+  ctx.fillText(`${d.p.followers} FOLLOWERS`, CX, CY + 88);
 }
 
 function statCell(ctx: Ctx2D, x: number, y: number, value: string, label: string, accent: string) {

@@ -146,8 +146,8 @@ void buildSummary() {
 
   char buf[32];
   compact(gStats.contrib, buf, sizeof(buf));
-  label(gRoot, buf, &lv_font_montserrat_48, lv_color_white(), -2);
-  label(gRoot, "CONTRIBUTIONS", &lv_font_montserrat_12, gAccent, 28);
+  label(gRoot, buf, &lv_font_montserrat_48, lv_color_white(), -8);
+  label(gRoot, "CONTRIBUTIONS", &lv_font_montserrat_12, gAccent, 26);
 
   lv_obj_t* name = lv_label_create(gRoot);
   lv_label_set_text(name, gStats.name[0] ? gStats.name : gStats.login);
@@ -167,7 +167,7 @@ void buildSummary() {
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(row, 5, 0);
-  lv_obj_align(row, LV_ALIGN_CENTER, 0, 58);
+  lv_obj_align(row, LV_ALIGN_CENTER, 0, 60);
 
   lv_obj_t* star = lv_img_create(row);
   lv_img_set_src(star, &kStarImg);
@@ -181,7 +181,7 @@ void buildSummary() {
   lv_obj_set_style_text_color(stars, lv_color_white(), 0);
 
   snprintf(buf, sizeof(buf), "%ld FOLLOWERS", static_cast<long>(gStats.followers));
-  label(gRoot, buf, &lv_font_montserrat_12, lv_color_hex(0x8B97A5), 82);
+  label(gRoot, buf, &lv_font_montserrat_12, lv_color_hex(0x8B97A5), 84);
 }
 
 void statCell(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, int32_t value, const char* name) {
