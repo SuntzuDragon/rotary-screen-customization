@@ -79,14 +79,61 @@ void ImprovSerial::sendDeviceInfo() {
   sendRpcResult(CMD_DEVICE_INFO, info, 4);
 }
 
+/**
+ * Scan and report networks, one entry per SSID.
+ *
+ * A scan returns one result per radio, so a mesh network or an extender shows
+ * the same name several times at different strengths. Reporting them all makes
+ * the browser's picker show duplicates, and its de-duplication keeps whichever
+ * arrived last -- which can be the weakest one. Collapse here instead, keeping
+ * the strongest signal per name, and send them strongest first.
+ */
 void ImprovSerial::sendScanResults() {
   const int found = WiFi.scanNetworks();
+
+  static constexpr int kMaxNetworks = 24;
+  String names[kMaxNetworks];
+  int32_t rssi[kMaxNetworks];
+  bool secured[kMaxNetworks];
+  int count = 0;
+
   for (int i = 0; i < found; i++) {
-    const String row[3] = {WiFi.SSID(i), String(WiFi.RSSI(i)),
-                           WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "NO" : "YES"};
-    sendRpcResult(CMD_SCAN, row, 3);
+    const String ssid = WiFi.SSID(i);
+    if (ssid.isEmpty()) continue;  // hidden network
+
+    int slot = -1;
+    for (int j = 0; j < count; j++) {
+      if (names[j] == ssid) {
+        slot = j;
+        break;
+      }
+    }
+    if (slot >= 0) {
+      if (WiFi.RSSI(i) > rssi[slot]) rssi[slot] = WiFi.RSSI(i);
+      continue;
+    }
+    if (count >= kMaxNetworks) continue;
+    names[count] = ssid;
+    rssi[count] = WiFi.RSSI(i);
+    secured[count] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    count++;
   }
   WiFi.scanDelete();
+
+  // Strongest first: the network you are standing next to should be at the top.
+  for (int i = 1; i < count; i++) {
+    for (int j = i; j > 0 && rssi[j] > rssi[j - 1]; j--) {
+      const String n = names[j]; names[j] = names[j - 1]; names[j - 1] = n;
+      const int32_t r = rssi[j]; rssi[j] = rssi[j - 1]; rssi[j - 1] = r;
+      const bool sec = secured[j]; secured[j] = secured[j - 1]; secured[j - 1] = sec;
+    }
+  }
+
+  Serial.printf("[improv] %d radios -> %d unique networks\n", found, count);
+  for (int i = 0; i < count; i++) {
+    const String row[3] = {names[i], String(rssi[i]), secured[i] ? "YES" : "NO"};
+    sendRpcResult(CMD_SCAN, row, 3);
+  }
   sendRpcResult(CMD_SCAN, nullptr, 0);  // empty result terminates the list
 }
 
