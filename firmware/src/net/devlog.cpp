@@ -21,7 +21,16 @@ void logf(const char* fmt, ...) {
   vsnprintf(line, sizeof(line), fmt, args);
   va_end(args);
 
-  Serial.print(line);
+  // Only write to the cable when something is actually listening.
+  //
+  // On the USB-Serial/JTAG peripheral, Serial.write blocks when no host has the
+  // port open -- so with a non-zero TX timeout every log line costs the full
+  // timeout. The ESP-IDF Wi-Fi driver logs heavily during association, which
+  // dragged a 3-second connect out to 80-100 seconds. Attaching a serial
+  // monitor "fixed" it, which is exactly how the symptom was found.
+  //
+  // The ring buffer is always written, so nothing is lost: it ships over Wi-Fi.
+  if (Serial) Serial.print(line);
 
   // Strip the trailing newline: the transport stores one string per line.
   size_t len = strlen(line);

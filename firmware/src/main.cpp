@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include <WiFi.h>
+#include <esp_log.h>
 #include <lvgl.h>
 
 #include "board_pins.h"
@@ -351,14 +352,16 @@ void loadDemoStats() {
  */
 void setup() {
   Serial.begin(115200);
-  // Bounded, not zero. A host that holds the port open without reading will
-  // stall Serial.write indefinitely at the default timeout, freezing the device
-  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
-  // full, which silently truncates Improv packets. A short timeout gives them
-  // room to drain without ever hanging.
+  // Never block on the cable. Improv packets are written in a single buffered
+  // call into an empty buffer, so they survive a zero timeout; ordinary logging
+  // is gated on `if (Serial)` in devlog, and the ring buffer keeps everything
+  // for the Wi-Fi shipment regardless.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(50);
+  Serial.setTxTimeoutMs(0);
 #endif
+
+  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);
   pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
   pinMode(PIN_PWR_EN2, OUTPUT); digitalWrite(PIN_PWR_EN2, HIGH);
@@ -397,14 +400,16 @@ void loop() {
  */
 void setup() {
   Serial.begin(115200);
-  // Bounded, not zero. A host that holds the port open without reading will
-  // stall Serial.write indefinitely at the default timeout, freezing the device
-  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
-  // full, which silently truncates Improv packets. A short timeout gives them
-  // room to drain without ever hanging.
+  // Never block on the cable. Improv packets are written in a single buffered
+  // call into an empty buffer, so they survive a zero timeout; ordinary logging
+  // is gated on `if (Serial)` in devlog, and the ring buffer keeps everything
+  // for the Wi-Fi shipment regardless.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(50);
+  Serial.setTxTimeoutMs(0);
 #endif
+
+  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);
   devlog::logf("[diag] backlight-only build: GPIO46 1s on / 1s off, forever\n");
   // Board power rails must come up before anything else -- see board_pins.h.
@@ -430,14 +435,16 @@ void loop() {
 
 void setup() {
   Serial.begin(115200);
-  // Bounded, not zero. A host that holds the port open without reading will
-  // stall Serial.write indefinitely at the default timeout, freezing the device
-  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
-  // full, which silently truncates Improv packets. A short timeout gives them
-  // room to drain without ever hanging.
+  // Never block on the cable. Improv packets are written in a single buffered
+  // call into an empty buffer, so they survive a zero timeout; ordinary logging
+  // is gated on `if (Serial)` in devlog, and the ring buffer keeps everything
+  // for the Wi-Fi shipment regardless.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(50);
+  Serial.setTxTimeoutMs(0);
 #endif
+
+  // The Wi-Fi driver is chatty at INFO level and every line costs USB time.
+  esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);  // let the USB CDC host attach before the first line
   devlog::logf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
                 static_cast<int>(esp_reset_reason()));

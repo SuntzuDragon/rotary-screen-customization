@@ -373,3 +373,34 @@ back to `loader.after()` if it throws.
 This also explains an earlier "black screen after flashing" that was originally
 attributed to the NVS wipe. The NVS wipe was real and separate (section 11) —
 the dark screen after it was this.
+
+## 17. Serial writes were throttling the whole device (observer effect)
+
+Wi-Fi association took 80-105 seconds, but only when nobody was watching. Every
+time a serial monitor was attached the device immediately raced ahead. The user
+spotted it: *"it always switches to registering after you start investigating."*
+
+Cause: on the ESP32-S3's USB-Serial/JTAG peripheral, `Serial.write` **blocks
+when no host has the port open**. With `setTxTimeoutMs(50)` every log line cost
+the full 50ms — including the ESP-IDF Wi-Fi driver's own chatter, which is heavy
+during association. Attaching a monitor drains the buffer instantly and the
+stall disappears, so the bug was invisible to every measurement that looked for
+it.
+
+This also explains the earlier unexplained 126s and 105s figures, and why local
+testing always looked fast: a monitor was attached every time.
+
+Fix, in three parts:
+
+- `setTxTimeoutMs(0)` — never block. Safe now that Improv packets are written as
+  a single buffered call into an empty buffer (section: truncated packets).
+- `devlog` writes to the cable only under `if (Serial)`. The ring buffer is
+  written unconditionally, so nothing is lost — it still ships over Wi-Fi.
+- `esp_log_level_set("*", ESP_LOG_WARN)` to quiet the driver.
+
+**Measured, with nothing attached** (server-side, from when the device first
+reports in): **6 seconds** from reset to online, against ~84-105s before.
+
+The lesson worth keeping: when a symptom vanishes under observation, the
+observation is part of the system. Measure from the far side — here, the Worker's
+`lastSeen` — rather than from the cable that is itself the variable.
