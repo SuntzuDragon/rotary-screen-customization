@@ -141,3 +141,28 @@ Target is `hdog.imcb.dev`. Checked on 2026-09-08: `imcb.dev` is already behind
 Cloudflare and presents a Google Trust Services `WE1` leaf chaining to **GTS
 Root R4** — the same root as `workers.dev`, so the embedded CA bundle needs no
 change for the custom domain.
+
+## 10. Board identification, and an OPI PSRAM trap
+
+`esptool flash-id` against the real board (non-destructive):
+
+```
+Chip type:   ESP32-S3 (QFN56) (revision v0.2)
+Features:    Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 8MB
+Flash:       16MB, manufacturer ba device 4018
+Flash type set in eFuse: quad (4 data lines)
+USB mode:    USB-Serial/JTAG        MAC: 68:ee:8f:5d:c5:48
+```
+
+Confirms 8MB PSRAM, 16MB flash (matching `partitions.csv`), and native USB.
+
+**The trap:** flash is *quad*, PSRAM is *octal*. The `esp32-s3-devkitc-1` board
+definition defaults to `memory_type = qio_qspi`, under which the octal PSRAM is
+never initialised and **every `heap_caps_malloc(..., MALLOC_CAP_SPIRAM)` returns
+null**. The LVGL draw buffers and the sparkline canvas all allocate from PSRAM,
+so the symptom would have been a blank or crashing screen with nothing in the
+build log to point at it.
+
+Fixed with `board_build.arduino.memory_type = qio_opi` in `platformio.ini`. The
+allocations now also fall back to internal RAM and log a line, so a future
+misconfiguration degrades to a slow screen rather than a silent blank one.

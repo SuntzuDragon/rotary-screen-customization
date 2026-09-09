@@ -193,7 +193,9 @@ void buildSpark() {
     // A canvas is the only sane way to draw 52 arbitrary-angle bars; 240x240 at
     // 16bpp is ~113KB, which is nothing against 8MB of PSRAM.
     static lv_color_t* buf = nullptr;
-    if (!buf) {
+    static bool tried = false;
+    if (!tried) {
+      tried = true;
       buf = static_cast<lv_color_t*>(
           heap_caps_malloc(kSize * kSize * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
     }

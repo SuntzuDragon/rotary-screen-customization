@@ -1,14 +1,17 @@
 # rotary-screen-customization
 
-GitHub stats dashboard for the **Elecrow CrowPanel 1.28" HMI ESP32 Rotary Display**
-— a 240×240 round IPS panel on a rotary knob.
+[![deploy](https://github.com/SuntzuDragon/rotary-screen-customization/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/SuntzuDragon/rotary-screen-customization/actions/workflows/deploy.yml)
+[![live](https://img.shields.io/website?url=https%3A%2F%2Fhdog.imcb.dev&label=hdog.imcb.dev&up_message=live&down_message=down&logo=cloudflare&logoColor=white&color=f38020)](https://hdog.imcb.dev)
+[![firmware](https://img.shields.io/badge/firmware-ESP32--S3%20%2F%20LVGL%208.3-E7352C?logo=espressif&logoColor=white)](firmware/)
 
-Spin the knob to page through repo stats, press to change screens. Set it up from
-a browser over USB: no phone, no captive portal, no pairing code.
+GitHub stats on a knob you can spin — for the **Elecrow CrowPanel 1.28" HMI ESP32
+Rotary Display**, a 240x240 round IPS panel with a rotary encoder and touch.
 
 ![config UI](docs/ui-config.png)
 
-**Live:** <https://hdog.imcb.dev> (also <https://rotary-stats.imcb01.workers.dev>)
+Turn the knob to page through repos, press to change screens. Set it up from a
+browser over USB: no phone, no captive portal, no pairing code, nothing typed
+twice.
 
 ## How it fits together
 

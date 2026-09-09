@@ -60,9 +60,20 @@ void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* px) {
 void initLvgl() {
   lv_init();
   // Draw buffers in PSRAM; two of them so DMA can overlap with rendering.
-  const size_t px = SCREEN_W * kDrawLines;
+  // Falls back to internal RAM with a smaller buffer if PSRAM is missing or
+  // misconfigured, so a wrong memory_type shows a slow screen rather than a
+  // blank one that is hard to diagnose.
+  size_t px = SCREEN_W * kDrawLines;
   gBuf1 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
   gBuf2 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
+  if (!gBuf1 || !gBuf2) {
+    Serial.println("PSRAM unavailable - falling back to internal RAM");
+    free(gBuf1);
+    free(gBuf2);
+    px = SCREEN_W * 10;
+    gBuf1 = static_cast<lv_color_t*>(malloc(px * sizeof(lv_color_t)));
+    gBuf2 = nullptr;
+  }
   lv_disp_draw_buf_init(&gDrawBuf, gBuf1, gBuf2, px);
 
   static lv_disp_drv_t drv;
