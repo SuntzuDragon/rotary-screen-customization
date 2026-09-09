@@ -83,6 +83,41 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
   };
 }
 
+/**
+ * One shared connection for the page.
+ *
+ * Opening the port resets the board -- Chrome asserts DTR/RTS, which are BOOT
+ * and EN here -- so every open costs a reboot. Holding a single connection
+ * open means that cost is paid once, when the user asks for it, and everything
+ * afterwards (pushing settings, in particular) is immediate.
+ */
+let live: Connection | null = null;
+
+export const liveConnection = () => live;
+
+export async function openShared(
+  onStatus: (msg: string) => void = () => {},
+): Promise<Connection> {
+  if (live) return live;
+  const conn = await connect(onStatus);
+  const inner = conn.close;
+  live = {
+    ...conn,
+    close: async () => {
+      live = null;
+      await inner();
+    },
+  };
+  return live;
+}
+
+/** Release the port. The flasher needs it exclusively, so it calls this first. */
+export async function closeShared() {
+  const conn = live;
+  live = null;
+  await conn?.close().catch(() => {});
+}
+
 export async function provision(
   conn: Connection,
   ssid: string,

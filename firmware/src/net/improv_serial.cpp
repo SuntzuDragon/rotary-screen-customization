@@ -16,6 +16,14 @@ constexpr uint8_t CMD_WIFI_SETTINGS = 0x01;
 constexpr uint8_t CMD_CURRENT_STATE = 0x02;
 constexpr uint8_t CMD_DEVICE_INFO = 0x03;
 constexpr uint8_t CMD_SCAN = 0x04;
+
+/**
+ * Local extension, deliberately outside the 0x01-0x04 the specification
+ * assigns, so a future Improv command can never collide with it. A client that
+ * does not know it is unaffected; a device that does not implement it answers
+ * ERR_UNKNOWN_CMD, which is what the browser falls back on.
+ */
+constexpr uint8_t CMD_REFRESH = 0x80;
 }  // namespace
 
 void ImprovSerial::begin(Stream& io, const char* deviceName, const char* firmware,
@@ -191,6 +199,22 @@ void ImprovSerial::handleRpc(const uint8_t* data, uint8_t len) {
     case CMD_SCAN:
       sendScanResults();
       break;
+
+    case CMD_REFRESH: {
+      if (!_refresh) {
+        sendError(ERR_UNKNOWN_CMD);
+        break;
+      }
+      // The handler blocks until the fetch finishes -- a couple of seconds --
+      // and the browser is sitting on this RPC result, so there is nothing
+      // else for Improv to answer meanwhile. Reporting the outcome rather than
+      // just acknowledging is the point: "pushed" and "the dial has it" are
+      // different claims, and only the second one is worth making.
+      const bool ok = _refresh();
+      String status = ok ? "OK" : "FAIL";
+      sendRpcResult(CMD_REFRESH, &status, 1);
+      break;
+    }
 
     case CMD_WIFI_SETTINGS: {
       if (dataLen < 2) {

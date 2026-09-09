@@ -162,6 +162,12 @@ bool gStatsDirty = false;
 volatile bool gConnectRequested = false;
 volatile int8_t gConnectResult = -1;  // -1 pending, 0 failed, 1 ok
 String gReqSsid, gReqPass;
+
+// Same shape, for "fetch settings now" arriving over USB while the browser
+// holds the port. Networking belongs to the net task, so the Improv handler
+// asks rather than fetching itself.
+volatile bool gPollRequested = false;
+volatile int8_t gPollResult = -1;
 bool gRegistered = false;
 
 void setPhase(NetPhase phase, const char* detail = "") {
@@ -189,7 +195,8 @@ bool bringUpNetwork(const String& ssid, const String& pass) {
   return true;
 }
 
-void pollOnce() {
+/** True if the service answered, whether or not anything had changed. */
+bool pollOnce() {
   devlog::logf("[net] polling...\n");
   Stats fresh{};
   xSemaphoreTake(gStateMutex, portMAX_DELAY);
@@ -214,6 +221,7 @@ void pollOnce() {
     xSemaphoreGive(gStateMutex);
   }
   if (r != api::Result::Failed) setPhase(NetPhase::Ready);
+  return r != api::Result::Failed;
 }
 
 void netTask(void*) {
@@ -239,11 +247,28 @@ void netTask(void*) {
       gConnectRequested = false;
     }
 
+    // Asked over USB to fetch now. This is the whole point of the serial
+    // connection staying open on the settings page: the browser has just
+    // written the new settings, and rather than waiting out a poll interval it
+    // says so directly.
+    if (gPollRequested) {
+      gPollRequested = false;
+      if (gRegistered && WiFi.status() == WL_CONNECTED) {
+        gPollResult = pollOnce() ? 1 : 0;
+        lastPoll = millis();
+      } else {
+        devlog::logf("[net] refresh asked for while offline\n");
+        gPollResult = 0;
+      }
+    }
+
     // 10s. Config now updates server-side instantly (D1 is strongly
     // consistent), so the poll interval is the *entire* remaining delay
-    // between pushing a setting and seeing it on the dial. Unchanged polls
-    // answer 304 with an empty body, and even at this rate the device uses
-    // under 9% of the request budget and 0.2% of the database read budget.
+    // between pushing a setting and seeing it on the dial -- unless the
+    // browser is on the other end of the cable, in which case the request
+    // above removes even that. Unchanged polls answer 304 with an empty body,
+    // and even at this rate the device uses under 9% of the request budget and
+    // 0.2% of the database read budget.
     if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 10000UL) {
       lastPoll = millis();
       pollOnce();
@@ -531,6 +556,21 @@ void setup() {
   gImprov.begin(Serial, "Rotary Stats", "rotary-stats", FW_VERSION, "ESP32-S3");
   gImprov.setNextUrl([]() { return settings::configUrl(); });
   gImprov.setHostAttached([]() { return static_cast<bool>(Serial); });
+  gImprov.setRefreshHandler([]() {
+    // Same hand-off as the connect handler below: the work belongs to the net
+    // task, and this waits here pumping only LVGL, since the browser is
+    // blocked on the reply and Improv has nothing else to answer.
+    gPollResult = -1;
+    gPollRequested = true;
+
+    const uint32_t deadline = millis() + 20000UL;
+    while (gPollResult < 0 && static_cast<int32_t>(deadline - millis()) > 0) {
+      serviceUi();
+      lv_timer_handler();
+      delay(10);
+    }
+    return gPollResult == 1;
+  });
   gImprov.setConnectHandler([](const String& ssid, const String& pass) {
     // Hand the work to the network task and wait here. Only LVGL is pumped:
     // the browser is blocked on this RPC result so Improv has nothing to

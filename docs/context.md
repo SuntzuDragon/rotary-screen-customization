@@ -266,9 +266,34 @@ and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 
 **Known open questions:**
 
-- Config reaches the device by polling (~10s). A USB fast path would be instant
-  while plugged in; the cloud path is kept because it works from a phone and
-  when untethered.
+- Nothing outstanding on the config path — see *Instant push over USB* below.
+
+### Instant push over USB
+
+Settings live in the service and the dial notices them at its next poll, so a
+push was always up to ~10s behind. When the browser has the port open it can
+say so directly: Improv command **`0x80`**, deliberately outside the `0x01–0x04`
+the specification assigns, meaning "fetch your settings now". The device hands
+the request to the network task, waits (pumping LVGL, exactly as the Wi-Fi
+connect handler does), and replies `OK` or `FAIL` **after** the fetch finishes —
+so the browser's "Live on the dial" is a statement from the device, not a guess
+about propagation.
+
+The design choice worth remembering: the RPC carries **no settings**. It is a
+nudge, not a transfer. D1 stays the single source of truth, the device applies
+exactly the payload the service rendered, and there is no second code path to
+keep in sync. The cost is one HTTPS round trip (~1s) instead of nothing, which
+is not worth a duplicate config format.
+
+**Opening the port resets the board** (Chrome asserts DTR/RTS = BOOT/EN), so the
+page holds *one* shared connection (`openShared`/`closeShared` in `improv.ts`)
+rather than opening per push. Provisioning no longer closes the port on its way
+to the settings view, so the first push after setup is already instant. The
+flasher calls `closeShared()` first — esptool needs the port exclusively.
+
+Every failure falls back to the poll: no cable, no Web Serial, cable pulled
+mid-push, or firmware older than v0.2.8 (which answers `ERR_UNKNOWN_CMD`, and
+the UI says to flash a newer build).
 
 ---
 

@@ -1,6 +1,14 @@
 import * as api from './api';
 import { flashFirmware } from './flash';
-import { connect, provision, serialSupported, type Connection, type Ssid } from './improv';
+import {
+  closeShared,
+  liveConnection,
+  openShared,
+  provision,
+  serialSupported,
+  type Connection,
+  type Ssid,
+} from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
 import type { DeckId, DeviceConfig, DevicePayload } from './types';
 
@@ -189,6 +197,15 @@ function firmwareCard(session: api.Session | null) {
       const chosen = fwIndex?.versions.find((v) => v.version === version);
       const image = await api.fetchFirmware(version, chosen?.sha256);
       logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
+
+      // esptool needs the port to itself. If the settings page is holding it
+      // open for instant pushes, hand it over first -- otherwise the port
+      // picker offers a device that is already claimed and the flash fails
+      // with nothing on screen to explain why.
+      if (liveConnection()) {
+        logLine('releasing the serial port held for instant push\n');
+        await closeShared();
+      }
       fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
 
       await flashFirmware(
@@ -291,11 +308,12 @@ function landing() {
     btn.disabled = true;
     status.replaceChildren(note('Waiting for you to pick a port…'));
     try {
-      const conn = await connect((msg) => status.replaceChildren(note(msg)));
+      const conn = await openShared((msg) => status.replaceChildren(note(msg)));
       if (conn.nextUrl) {
         // Already provisioned: adopt the session and go, no Wi-Fi step needed.
+        // The port stays open, so the first push from the settings page lands
+        // on the dial immediately rather than at its next poll.
         const adopted = adoptSession(conn.nextUrl);
-        await conn.close();
         if (adopted) {
           void configView(adopted);
           return;
@@ -380,7 +398,6 @@ function provisionView(conn: Connection) {
       const next = await provision(conn, ssid, password.value);
       if (next) {
         status.replaceChildren(note('Connected. Opening settings…', 'ok'));
-        await conn.close();
         // The device's URL is same-origin and differs only in the hash, so
         // assigning location.href is a same-document navigation: nothing
         // reloads and the page sits on this message forever. Adopt the session
@@ -508,6 +525,87 @@ async function configView(session: api.Session) {
   const pushNote = el('div', { class: 'status savebar' });
   const pushBtn = el('button', { class: 'primary' }, 'Push to device') as HTMLButtonElement;
 
+  /*
+   * USB is a shortcut, never a requirement.
+   *
+   * Settings live in the service and the dial picks them up on its next poll,
+   * so a push always works. But when the cable is already in, the browser can
+   * tell the device to fetch right now -- which turns "up to ten seconds, then
+   * probably" into "done, and here is the confirmation from the device".
+   */
+  const usbNote = el('div', { class: 'status' });
+  const usbBtn = el('button', { class: 'ghost' }, 'Connect over USB') as HTMLButtonElement;
+
+  const paintUsb = (msg?: string, tone?: 'ok' | 'info' | 'err') => {
+    const conn = liveConnection();
+    usbBtn.textContent = conn ? 'Disconnect USB' : 'Connect over USB';
+    usbBtn.disabled = false;
+    usbNote.replaceChildren(
+      note(
+        msg ??
+          (conn
+            ? `Connected to ${conn.info.name} ${conn.info.version} — pushes apply instantly.`
+            : 'Not connected. Pushes reach the dial at its next poll, within about ten ' +
+              'seconds. Connect the cable to apply them instantly.'),
+        tone ?? (conn ? 'ok' : 'info'),
+      ),
+    );
+  };
+
+  usbBtn.onclick = async () => {
+    usbBtn.disabled = true;
+    if (liveConnection()) {
+      await closeShared();
+      paintUsb();
+      return;
+    }
+    usbNote.replaceChildren(note('Waiting for you to pick a port…'));
+    try {
+      await openShared((msg) => usbNote.replaceChildren(note(msg)));
+      paintUsb();
+    } catch (err) {
+      paintUsb(err instanceof Error ? err.message : String(err), 'err');
+    }
+  };
+
+  if (!serialSupported()) {
+    usbBtn.disabled = true;
+    usbNote.replaceChildren(
+      note('This browser has no Web Serial, so pushes arrive at the next poll.', 'info'),
+    );
+  } else {
+    paintUsb();
+  }
+
+  /**
+   * Ask the device to fetch now. Returns true only if it confirms it has the
+   * new settings -- anything else falls back to watching the service, which is
+   * what happens with no cable attached anyway.
+   */
+  const nudgeOverUsb = async (): Promise<boolean> => {
+    const conn = liveConnection();
+    if (!conn) return false;
+    try {
+      const ok = await conn.improv.refresh();
+      if (ok === null) {
+        paintUsb('Connected, but this firmware predates instant push — flash a newer build.', 'info');
+        return false;
+      }
+      if (!ok) {
+        paintUsb('The device could not reach the service just now.', 'err');
+        return false;
+      }
+      paintUsb();
+      return true;
+    } catch (err) {
+      // Usually the cable came out. Drop the stale connection rather than
+      // leaving a button that claims a link which is gone.
+      await closeShared();
+      paintUsb(err instanceof Error ? err.message : String(err), 'err');
+      return false;
+    }
+  };
+
   const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
 
   const refreshDirty = () => {
@@ -537,8 +635,21 @@ async function configView(session: api.Session) {
       return;
     }
 
-    // Confirm it actually reached the payload the device fetches: the write is
-    // immediate but KV reads lag 15-30s, so "saved" alone would be misleading.
+    // With the cable in, ask the device to fetch now and report back. That
+    // reply comes from the device itself, so it is the only confirmation here
+    // that is actually about the dial rather than about the service.
+    if (liveConnection()) {
+      pushNote.replaceChildren(note('Pushed — telling the device over USB…'));
+      if (await nudgeOverUsb()) {
+        payload = (await api.getPreview(session).catch(() => null)) ?? payload;
+        pushNote.replaceChildren(note('Live on the dial.', 'ok'));
+        refreshDirty();
+        return;
+      }
+    }
+
+    // Otherwise confirm it at least reached the payload the device fetches:
+    // "saved" alone would be a claim about this browser, not about the dial.
     pushNote.replaceChildren(note('Pushed — waiting for the service to pick it up…'));
     const deadline = Date.now() + 90000;
     for (;;) {
@@ -550,7 +661,7 @@ async function configView(session: api.Session) {
         fresh.theme.accent === config.theme.accent &&
         (config.repos === null || fresh.repos.map((r) => r.n).join() === config.repos.join());
       if (agrees) {
-        pushNote.replaceChildren(note('Live — the dial updates within about 30 seconds.', 'ok'));
+        pushNote.replaceChildren(note('Live — the dial picks this up within about ten seconds.', 'ok'));
         break;
       }
       if (Date.now() > deadline) {
@@ -760,7 +871,7 @@ async function configView(session: api.Session) {
       el(
         'div',
         { class: 'stack' },
-        el('section', { class: 'card' }, pushBtn, pushNote),
+        el('section', { class: 'card' }, pushBtn, pushNote, usbBtn, usbNote),
         el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
         el(
           'section',

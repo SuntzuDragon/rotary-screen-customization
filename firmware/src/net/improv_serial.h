@@ -36,6 +36,12 @@ class ImprovSerial {
   using ConnectFn = std::function<bool(const String& ssid, const String& password)>;
   /** URL the browser should open next; empty to send none. */
   using UrlFn = std::function<String()>;
+  /**
+   * Fetch settings from the service right now. Returns true once the device
+   * has them. Called from the Improv loop, so it must pump the UI while it
+   * waits -- see setConnectHandler's handler for the same pattern.
+   */
+  using RefreshFn = std::function<bool()>;
   /** True when a USB host has the port open. */
   using HostFn = std::function<bool()>;
 
@@ -43,6 +49,17 @@ class ImprovSerial {
              const char* chip);
   void setConnectHandler(ConnectFn fn) { _connect = fn; }
   void setNextUrl(UrlFn fn) { _nextUrl = fn; }
+  /**
+   * Handler for the one command this build adds to Improv (0x80, outside the
+   * range the specification assigns).
+   *
+   * Settings live in the service, and the device notices a change when it next
+   * polls -- so a push from the settings page took up to a poll interval to
+   * appear. When the browser already has the serial port open there is a
+   * direct line to say "look now", which turns that wait into a single request
+   * the device makes immediately.
+   */
+  void setRefreshHandler(RefreshFn fn) { _refresh = fn; }
   /**
    * Lets the sender flush only when a host is present. flush() waits for the
    * USB TX buffer to drain and never returns with nothing attached -- that
@@ -72,6 +89,7 @@ class ImprovSerial {
 
   ConnectFn _connect;
   UrlFn _nextUrl;
+  RefreshFn _refresh;
   HostFn _hostAttached;
   State _state = STATE_AUTHORIZED;
 

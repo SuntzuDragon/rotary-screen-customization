@@ -25,6 +25,13 @@ const CMD_CURRENT_STATE = 0x02;
 const CMD_DEVICE_INFO = 0x03;
 const CMD_SCAN = 0x04;
 
+/**
+ * Local extension, outside the range the specification assigns: "fetch your
+ * settings from the service now". A device that predates it answers
+ * ERR_UNKNOWN_CMD rather than going quiet, which is what `refresh` reports.
+ */
+const CMD_REFRESH = 0x80;
+
 export const STATE_PROVISIONED = 0x04;
 
 export interface Frame {
@@ -222,6 +229,30 @@ export class ImprovRaw {
       });
     }
     return found;
+  }
+
+  /**
+   * Tell the device to fetch its settings now instead of at its next poll.
+   *
+   * Resolves true once the device confirms it has them -- it holds the reply
+   * until its request finishes, so this is an answer about the dial, not an
+   * acknowledgement that the message was received. False means the device is
+   * there but could not fetch (usually no Wi-Fi); null means it does not know
+   * the command, and the caller should fall back to waiting for the poll.
+   */
+  async refresh(timeoutMs = 25000): Promise<boolean | null> {
+    this.frames = [];
+    await this.write(rpc(CMD_REFRESH));
+
+    const f = await this.awaitFrame(
+      (x) =>
+        (x.type === TYPE_RPC_RESULT && x.payload[0] === CMD_REFRESH) ||
+        x.type === TYPE_ERROR_STATE,
+      timeoutMs,
+    );
+    if (!f) return null;
+    if (f.type === TYPE_ERROR_STATE) return null; // unknown command on this build
+    return decodeStrings(f.payload)[0] === 'OK';
   }
 
   /** Send credentials. Returns the URL the device wants opened, if any. */
