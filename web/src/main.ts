@@ -624,6 +624,16 @@ async function configView(session: api.Session) {
   };
 
 
+  // Once a session is stored the app goes straight here, with no route back to
+  // the USB flow. Clearing Chrome's serial permission does not help -- that is
+  // a browser grant, this is app state -- so there has to be an explicit way
+  // out, both to reconnect and to hand the device to someone else.
+  const forgetBtn = el('button', { class: 'ghost' }, 'Connect over USB again');
+  forgetBtn.onclick = () => {
+    api.clearSession();
+    landing();
+  };
+
   const refreshBtn = el('button', { class: 'ghost' }, 'Refresh from GitHub now');
   const refreshStatus = el('span', { class: 'tag' }, '');
   refreshBtn.onclick = async () => {
@@ -693,7 +703,18 @@ async function configView(session: api.Session) {
           tokenStatus,
         ),
         firmwareCard(session),
-        el('section', { class: 'card' }, el('div', { class: 'row' }, refreshBtn, refreshStatus)),
+        el(
+          'section',
+          { class: 'card' },
+          el('div', { class: 'row' }, refreshBtn, refreshStatus),
+          el(
+            'p',
+            { class: 'muted' },
+            'Reconnecting over USB re-reads the device identity — use it to set up ' +
+              'a different device, or after changing Wi-Fi.',
+          ),
+          forgetBtn,
+        ),
         buildFooter(),
       ),
     ),
