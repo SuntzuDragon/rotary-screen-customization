@@ -415,6 +415,21 @@ function provisionView(conn: Connection) {
 
 /* -------------------------------- config -------------------------------- */
 
+/**
+ * Overlay an unsaved config onto the last payload, so the preview reflects
+ * edits immediately without a round trip.
+ */
+function applyDraft(payload: DevicePayload | null, draft: DeviceConfig): DevicePayload | null {
+  if (!payload) return null;
+  const repos =
+    draft.repos === null
+      ? payload.repos
+      : draft.repos
+          .map((name) => payload.repos.find((r) => r.n === name))
+          .filter((r): r is NonNullable<typeof r> => Boolean(r));
+  return { ...payload, decks: draft.decks, theme: draft.theme, repos };
+}
+
 function previewPanel(getPayload: () => DevicePayload | null) {
   const canvas = el('canvas', { class: 'screen', width: String(SIZE), height: String(SIZE) });
   const ctx = canvas.getContext('2d')!;
@@ -475,73 +490,86 @@ async function configView(session: api.Session) {
   }
 
   payload = await api.getPreview(session).catch(() => null);
-  const preview = previewPanel(() => payload);
+  const preview = previewPanel(() => applyDraft(payload, draft));
 
-  const saveNote = el('div', { class: 'status savebar' });
+  // Edits accumulate in a draft and only reach the device when pushed.
+  //
+  // Auto-saving on every checkbox meant a KV write per click -- against a
+  // 1000/day account-wide cap -- and a confusing wait while each one
+  // propagated. Batching means one write per push, and the preview updates
+  // instantly because it renders the draft locally.
+  let draft: DeviceConfig = structuredClone(config);
+  const pushNote = el('div', { class: 'status savebar' });
+  const pushBtn = el('button', { class: 'primary' }, 'Push to device') as HTMLButtonElement;
 
-  /**
-   * Save, then confirm the change has actually reached the device's payload.
-   *
-   * A checkbox used to appear to do nothing: the write lands immediately, but
-   * KV reads lag by 15-30s and the device polls on top of that, so the dial
-   * could take over a minute to catch up with no feedback at all. Poll the
-   * payload until it agrees, so the UI can say "saved", then "live".
-   */
-  const save = async (patch: Partial<DeviceConfig>) => {
-    saveNote.replaceChildren(note('Saving…'));
+  const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
+
+  const refreshDirty = () => {
+    pushBtn.disabled = !dirty();
+    pushNote.replaceChildren(
+      dirty()
+        ? note('Unsaved changes — push to send them to the dial.')
+        : note('The dial matches these settings.', 'ok'),
+    );
+    preview.draw();
+  };
+
+  const edit = (patch: Partial<DeviceConfig>) => {
+    draft = { ...draft, ...patch };
+    refreshDirty();
+  };
+
+  pushBtn.onclick = async () => {
+    pushBtn.disabled = true;
+    pushNote.replaceChildren(note('Pushing…'));
     try {
-      config = await api.putConfig(session, patch);
+      config = await api.putConfig(session, draft);
+      draft = structuredClone(config);
     } catch (err) {
-      saveNote.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+      pushNote.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+      pushBtn.disabled = false;
       return;
     }
-    saveNote.replaceChildren(note('Saved — waiting for the dial to pick it up…'));
 
-    const matches = (p: DevicePayload | null) =>
-      p !== null &&
-      p.decks.join() === config.decks.join() &&
-      p.theme.accent === config.theme.accent &&
-      p.theme.bright === config.theme.bright &&
-      p.theme.rotSec === config.theme.rotSec &&
-      (config.repos === null || p.repos.map((r) => r.n).join() === config.repos.join());
-
+    // Confirm it actually reached the payload the device fetches: the write is
+    // immediate but KV reads lag 15-30s, so "saved" alone would be misleading.
+    pushNote.replaceChildren(note('Pushed — waiting for the service to pick it up…'));
     const deadline = Date.now() + 90000;
     for (;;) {
       const fresh = await api.getPreview(session).catch(() => null);
-      if (fresh) {
-        payload = fresh;
-        preview.draw();
-      }
-      if (matches(fresh)) {
-        saveNote.replaceChildren(
-          note('Live — the dial will show this within about half a minute.', 'ok'),
-        );
-        return;
+      if (fresh) payload = fresh;
+      const agrees =
+        fresh !== null &&
+        fresh.decks.join() === config.decks.join() &&
+        fresh.theme.accent === config.theme.accent &&
+        (config.repos === null || fresh.repos.map((r) => r.n).join() === config.repos.join());
+      if (agrees) {
+        pushNote.replaceChildren(note('Live — the dial updates within about 30 seconds.', 'ok'));
+        break;
       }
       if (Date.now() > deadline) {
-        saveNote.replaceChildren(
-          note('Saved, but the service has not picked it up yet. It should catch up shortly.'),
-        );
-        return;
+        pushNote.replaceChildren(note('Pushed, but the service has not caught up yet.'));
+        break;
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
+    refreshDirty();
   };
 
   /* deck toggles */
   const deckList = el('div', { class: 'rows' });
   for (const id of Object.keys(DECK_LABEL) as DeckId[]) {
     const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
-    cb.checked = config.decks.includes(id);
+    cb.checked = draft.decks.includes(id);
     cb.onchange = async () => {
       const next = (Object.keys(DECK_LABEL) as DeckId[]).filter((d) =>
-        d === id ? cb.checked : config.decks.includes(d),
+        d === id ? cb.checked : draft.decks.includes(d),
       );
       if (next.length === 0) {
         cb.checked = true;
         return;
       }
-      await save({ decks: next });
+      edit({ decks: next });
     };
     deckList.append(el('label', { class: 'row' }, cb, el('span', {}, DECK_LABEL[id])));
   }
@@ -554,12 +582,12 @@ async function configView(session: api.Session) {
       repoList.replaceChildren(
         ...repos.map((r) => {
           const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
-          cb.checked = config.repos === null || config.repos.includes(r.name);
+          cb.checked = draft.repos === null || draft.repos.includes(r.name);
           cb.onchange = async () => {
             const checked = [...repoList.querySelectorAll('input:checked')].map(
               (n) => (n as HTMLElement).dataset.name!,
             );
-            await save({ repos: checked });
+            edit({ repos: checked });
           };
           cb.dataset.name = r.name;
           return el(
@@ -577,7 +605,7 @@ async function configView(session: api.Session) {
   /* theme */
   const accent = el('input', { type: 'color', class: 'swatch' }) as HTMLInputElement;
   accent.value = config.theme.accent;
-  accent.onchange = () => save({ theme: { ...config.theme, accent: accent.value } });
+  accent.oninput = () => edit({ theme: { ...draft.theme, accent: accent.value } });
 
   const bright = el('input', {
     type: 'range',
@@ -591,7 +619,7 @@ async function configView(session: api.Session) {
   bright.oninput = () => {
     brightLabel.textContent = `${bright.value}%`;
   };
-  bright.onchange = () => save({ theme: { ...config.theme, bright: Number(bright.value) } });
+  bright.onchange = () => edit({ theme: { ...draft.theme, bright: Number(bright.value) } });
 
   const rot = el('input', {
     type: 'range',
@@ -604,7 +632,7 @@ async function configView(session: api.Session) {
   rot.oninput = () => {
     rotLabel.textContent = rot.value === '0' ? 'off' : `${rot.value}s`;
   };
-  rot.onchange = () => save({ theme: { ...config.theme, rotSec: Number(rot.value) } });
+  rot.onchange = () => edit({ theme: { ...draft.theme, rotSec: Number(rot.value) } });
 
 
   /* optional personal GitHub token */
@@ -703,7 +731,8 @@ async function configView(session: api.Session) {
       el(
         'div',
         { class: 'stack' },
-        el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList, saveNote),
+        el('section', { class: 'card' }, pushBtn, pushNote),
+        el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
         el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
         el(
           'section',
