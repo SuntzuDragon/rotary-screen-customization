@@ -86,3 +86,24 @@ returned `w: []` for every repo, the second returned all 52 weeks.
 Weekly commit peaks: piano 228, chainsaw 177, atomic-rollback 57, cargo-avail 18
 — across only 3-8 non-zero weeks each. Bars must be normalised per repo, and the
 52-week window is the only one where anything is visible.
+
+## 6. TLS root CA — the plan's assumption was wrong
+
+The plan assumed a Let's Encrypt / ISRG Root X1 chain. Measured:
+
+```
+$ echo | openssl s_client -connect workers.dev:443 -servername workers.dev
+depth=2 C = US, O = Google Trust Services LLC, CN = GTS Root R4
+depth=1 C = US, O = Google Trust Services,     CN = WE1
+depth=0 CN = workers.dev
+```
+
+Cloudflare's `workers.dev` chains to **GTS Root R4** via Google Trust Services
+`WE1`. Embedding ISRG Root X1 would have failed every handshake in the field
+with no useful error. `firmware/include/certs.h` embeds GTS Root R4 plus GTS
+Root R1 (as a hedge against rotation within Google's roots) and documents the
+re-check command.
+
+This is also why `api::syncClock()` runs before the first request: certificate
+validity is checked against the system clock, and a device that thinks it is
+1970 fails the handshake regardless of which root is embedded.

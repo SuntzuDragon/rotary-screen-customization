@@ -1,0 +1,10 @@
+# 16MB flash with two 4MB OTA slots. The vendor's "Huge APP, no OTA" scheme is
+# only needed for their large factory app; ours is small, and OTA matters for a
+# device you cannot easily get back on the bench.
+# name,   type, subtype, offset,   size
+nvs,      data, nvs,     0x9000,   0x5000
+otadata,  data, ota,     0xe000,   0x2000
+app0,     app,  ota_0,   0x10000,  0x400000
+app1,     app,  ota_1,   0x410000, 0x400000
+spiffs,   data, spiffs,  0x810000, 0x7E0000
+coredump, data, coredump,0xFF0000, 0x10000
