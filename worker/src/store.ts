@@ -127,12 +127,22 @@ export const MAX_LOG_LINES = 200;
 export const getDeviceLog = (env: Env, id: string) =>
   getJSON<{ at: number; lines: string[] }>(env, logKey(id));
 
-export async function appendDeviceLog(env: Env, id: string, lines: string[]) {
-  const existing = (await getDeviceLog(env, id))?.lines ?? [];
-  const merged = [...existing, ...lines].slice(-MAX_LOG_LINES);
+/**
+ * Overwrite, never append.
+ *
+ * The device ships a snapshot of its whole ring each time, so a plain put is
+ * correct and idempotent. Appending meant a read-modify-write against KV, which
+ * is eventually consistent -- a second shipment could read a stale copy and
+ * silently discard the first, which is exactly how the boot sequence kept
+ * disappearing from the log we were using to debug the boot sequence.
+ */
+export async function putDeviceLog(env: Env, id: string, lines: string[]) {
   await env.DEVICES.put(
     logKey(id),
-    JSON.stringify({ at: Math.floor(Date.now() / 1000), lines: merged }),
+    JSON.stringify({
+      at: Math.floor(Date.now() / 1000),
+      lines: lines.slice(-MAX_LOG_LINES),
+    }),
   );
 }
 

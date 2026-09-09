@@ -57,22 +57,50 @@ bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs)
   // linger in the driver and the next WiFi.begin() takes minutes to succeed
   // instead of seconds -- measured at ~105s on this board. Tearing the old
   // session down first makes association consistently quick.
+  // Step markers: the stall is somewhere in here, before the wait loop, and it
+  // only happens with no USB host attached -- so the ring buffer is the only
+  // way to see which call blocks.
+  devlog::logf("[net] step persistent\n");
   WiFi.persistent(false);
+  devlog::logf("[net] step disconnect\n");
   WiFi.disconnect(true, true);
+  devlog::logf("[net] step delay\n");
   delay(100);
+  devlog::logf("[net] step mode\n");
   WiFi.mode(WIFI_STA);
+  devlog::logf("[net] step setSleep\n");
   WiFi.setSleep(false);  // a desk display has no reason to power-save the radio
+  devlog::logf("[net] step begin\n");
   WiFi.begin(ssid.c_str(), password.c_str());
+  devlog::logf("[net] step wait\n");
 
   const uint32_t start = millis();
+  uint32_t lastReport = 0;
+  uint32_t iterations = 0;
   while (millis() - start < timeoutMs) {
+    iterations++;
     if (WiFi.status() == WL_CONNECTED) {
-      devlog::logf("[net] wifi ok, ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(),
-                    WiFi.RSSI());
+      devlog::logf("[net] wifi ok in %lums (%lu polls), ip=%s rssi=%d\n",
+                   static_cast<unsigned long>(millis() - start),
+                   static_cast<unsigned long>(iterations),
+                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
       return true;
+    }
+    // Record progress into the ring buffer. If the loop is being starved rather
+    // than simply waiting, the gap between these lines shows it -- and the ring
+    // carries the evidence out over Wi-Fi once the device finally connects.
+    if (millis() - lastReport > 2000) {
+      lastReport = millis();
+      devlog::logf("[net] waiting: status=%d t=%lums polls=%lu\n",
+                   static_cast<int>(WiFi.status()),
+                   static_cast<unsigned long>(millis() - start),
+                   static_cast<unsigned long>(iterations));
     }
     pump(200);
   }
+  devlog::logf("[net] wifi gave up after %lums (%lu polls)\n",
+               static_cast<unsigned long>(millis() - start),
+               static_cast<unsigned long>(iterations));
   devlog::logf("[net] wifi FAILED, status=%d\n", static_cast<int>(WiFi.status()));
   return false;
 }
@@ -208,8 +236,8 @@ namespace api {
 void shipLogs() {
   if (!devlog::hasPending() || WiFi.status() != WL_CONNECTED) return;
 
-  String lines[24];
-  const size_t n = devlog::drain(lines, 24);
+  String lines[48];
+  const size_t n = devlog::snapshot(lines, 48);
   if (n == 0) return;
 
   String body = "{\"lines\":[";

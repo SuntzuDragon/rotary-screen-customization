@@ -27,9 +27,15 @@ void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
  */
 void captureIdfLogs();
 
-/** Move pending lines out for upload. Returns how many were written. */
-size_t drain(String* out, size_t max);
+/**
+ * Copy the ring without consuming it. Shipping a snapshot rather than draining
+ * makes the upload idempotent: the server can overwrite instead of appending,
+ * which removes a read-modify-write race against eventually-consistent storage
+ * that was silently discarding the boot sequence.
+ */
+size_t snapshot(String* out, size_t max);
 
+/** True once anything has been logged. */
 bool hasPending();
 
 }  // namespace devlog

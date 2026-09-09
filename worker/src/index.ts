@@ -5,7 +5,7 @@ import {
   getFirmwareBin,
   getFirmwareIndex,
   publishFirmware,
-  appendDeviceLog,
+  putDeviceLog,
   getDeviceLog,
   getStatus,
   putStatus,
@@ -299,8 +299,8 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       const lines = (body.lines as unknown[])
         .filter((l): l is string => typeof l === 'string')
         .map((l) => l.slice(0, 240))
-        .slice(-50);
-      if (lines.length) await appendDeviceLog(env, id, lines);
+        .slice(-200);
+      if (lines.length) await putDeviceLog(env, id, lines);
       return json({ ok: true, stored: lines.length });
     }
     if (req.method === 'GET') {

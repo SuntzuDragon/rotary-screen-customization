@@ -61,15 +61,13 @@ void logf(const char* fmt, ...) {
   portEXIT_CRITICAL(&gMux);
 }
 
-bool hasPending() { return gHead != gTail; }
+bool hasPending() { return gHead > 0; }
 
-size_t drain(String* out, size_t max) {
+size_t snapshot(String* out, size_t max) {
   size_t n = 0;
   portENTER_CRITICAL(&gMux);
-  while (gTail != gHead && n < max) {
-    out[n++] = String(gRing[gTail % kLines]);
-    gTail++;
-  }
+  const size_t first = (gHead > kLines) ? gHead - kLines : 0;
+  for (size_t i = first; i < gHead && n < max; i++) out[n++] = String(gRing[i % kLines]);
   portEXIT_CRITICAL(&gMux);
   return n;
 }
