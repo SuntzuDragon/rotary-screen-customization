@@ -283,6 +283,11 @@ async function configView(session: api.Session) {
     class: 'range',
   }) as HTMLInputElement;
   bright.value = String(config.theme.bright);
+  const brightLabel = el('span', { class: 'tag' }, `${config.theme.bright}%`);
+  // Update while dragging, save only on release, so a drag is one KV write.
+  bright.oninput = () => {
+    brightLabel.textContent = `${bright.value}%`;
+  };
   bright.onchange = () => save({ theme: { ...config.theme, bright: Number(bright.value) } });
 
   const rot = el('input', {
@@ -393,7 +398,7 @@ async function configView(session: api.Session) {
           el('label', { class: 'lbl' }, 'Accent'),
           accent,
           el('label', { class: 'lbl' }, 'Brightness'),
-          bright,
+          el('div', { class: 'row' }, bright, brightLabel),
           el('label', { class: 'lbl' }, 'Auto-advance'),
           el('div', { class: 'row' }, rot, rotLabel),
         ),
