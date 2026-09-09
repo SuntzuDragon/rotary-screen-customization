@@ -12,6 +12,30 @@ const DECK_LABEL: Record<DeckId, string> = {
 
 const REPO_URL = 'https://github.com/SuntzuDragon/rotary-screen-customization';
 
+declare const __BUILD_SHA__: string;
+declare const __BUILD_TIME__: string;
+
+/** Build stamp, so it is obvious whether a hard reload picked up a new deploy. */
+function buildFooter() {
+  return el(
+    'p',
+    { class: 'muted center foot' },
+    el('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer' }, 'source on GitHub'),
+    ' · ',
+    el(
+      'a',
+      {
+        href: `${REPO_URL}/commit/${__BUILD_SHA__}`,
+        target: '_blank',
+        rel: 'noreferrer',
+        title: `built ${__BUILD_TIME__} UTC`,
+      },
+      `site build ${__BUILD_SHA__}`,
+    ),
+    ` · ${__BUILD_TIME__} UTC`,
+  );
+}
+
 const view = document.getElementById('view')!;
 const subtitle = document.getElementById('subtitle')!;
 
@@ -260,7 +284,7 @@ function landing() {
   }
   // Flashing is available here as well: a device that will not provision still
   // needs a way back, and flashing depends only on Web Serial.
-  show(el('div', { class: 'stack' }, card, firmwareCard(null)));
+  show(el('div', { class: 'stack' }, card, firmwareCard(null), buildFooter()));
 }
 
 /* ------------------------------ provisioning ------------------------------ */
@@ -624,11 +648,7 @@ async function configView(session: api.Session) {
         ),
         firmwareCard(session),
         el('section', { class: 'card' }, el('div', { class: 'row' }, refreshBtn, refreshStatus)),
-        el(
-          'p',
-          { class: 'muted center' },
-          el('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer' }, 'source on GitHub'),
-        ),
+        buildFooter(),
       ),
     ),
   );

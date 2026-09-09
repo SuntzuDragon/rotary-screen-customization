@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "lib": ["es2022", "dom", "dom.iterable"],
+    "lib": [
+      "es2022",
+      "dom",
+      "dom.iterable"
+    ],
     "module": "es2022",
     "moduleResolution": "bundler",
     "strict": true,
@@ -9,7 +13,14 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "types": ["vite/client", "w3c-web-serial"]
+    "types": [
+      "vite/client",
+      "w3c-web-serial",
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "vite.config.ts"
+  ]
 }

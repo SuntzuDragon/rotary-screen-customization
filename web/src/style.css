@@ -117,3 +117,5 @@ esp-web-install-button { display: block; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #9AA5B1; white-space: pre-wrap; word-break: break-all;
 }
+
+.foot { font-size: 12px; margin-top: 4px; opacity: 0.75; }
