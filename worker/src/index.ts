@@ -53,7 +53,13 @@ export async function refreshLogin(env: Env, login: string, token: string): Prom
     const ring = await getEvents(env, login);
     await putEvents(env, login, [...fresh, ...ring]);
   }
-  await putSnapshot(env, login, next);
+
+  // Only persist when something actually changed. fetchedAt moves every run, so
+  // compare everything else -- on a quiet day this turns 288 writes into none.
+  const sameContent =
+    prev !== null &&
+    JSON.stringify({ ...prev, fetchedAt: 0 }) === JSON.stringify({ ...next, fetchedAt: 0 });
+  if (!sameContent) await putSnapshot(env, login, next);
 }
 
 async function tokenFor(env: Env, id: string): Promise<string> {
@@ -257,12 +263,20 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
   /* Device poll. */
   if (resource === 'device' && !sub && req.method === 'GET') {
+    // Status is written sparingly. Recording it on every 60s poll cost ~1440 KV
+    // writes a day against a 1000/day free-tier cap -- the debugging niceties
+    // were the whole budget. Once every 15 minutes, or immediately if the
+    // firmware version changed, keeps "last seen" useful for a fraction of it.
     const reported = req.headers.get('x-fw-version');
+    const fwVersion = reported ? reported.slice(0, 32) : null;
+    const now = Math.floor(Date.now() / 1000);
     ctx.waitUntil(
-      putStatus(env, id, {
-        fwVersion: reported ? reported.slice(0, 32) : null,
-        lastSeen: Math.floor(Date.now() / 1000),
-      }),
+      (async () => {
+        const prev = await getStatus(env, id);
+        const versionChanged = prev?.fwVersion !== fwVersion;
+        const stale = !prev || now - prev.lastSeen > 900;
+        if (versionChanged || stale) await putStatus(env, id, { fwVersion, lastSeen: now });
+      })(),
     );
 
     const { payload } = await payloadFor(env, id);
@@ -300,8 +314,15 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
         .filter((l): l is string => typeof l === 'string')
         .map((l) => l.slice(0, 240))
         .slice(-200);
-      if (lines.length) await putDeviceLog(env, id, lines);
-      return json({ ok: true, stored: lines.length });
+      // Only write when the content changed. The device ships a snapshot of its
+      // whole ring on every poll, so most uploads are byte-identical to what is
+      // already stored and a blind put would burn a write for nothing.
+      const existing = await getDeviceLog(env, id);
+      const unchanged =
+        existing?.lines.length === lines.length &&
+        existing.lines.every((l, i) => l === lines[i]);
+      if (lines.length && !unchanged) await putDeviceLog(env, id, lines);
+      return json({ ok: true, stored: unchanged ? 0 : lines.length });
     }
     if (req.method === 'GET') {
       const log = await getDeviceLog(env, id);

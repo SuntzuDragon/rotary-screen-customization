@@ -197,10 +197,16 @@ void pollOnce() {
   xSemaphoreGive(gStateMutex);
 
   const api::Result r = api::poll(fresh);
-  // Piggyback on the poll cadence. Shipping on its own timer meant a fresh TLS
-  // handshake every 10s purely for logs -- visible as the heap sawtoothing
-  // between 155KB and 208KB.
-  api::shipLogs();
+
+  // Ship logs every fifth poll (~5 minutes), not every one. Uploading on each
+  // poll meant a TLS handshake and a KV round trip a minute purely for
+  // diagnostics, which is most of a free-tier write budget for data nobody
+  // reads unless something is wrong.
+  static uint8_t sinceShip = 0;
+  if (++sinceShip >= 5) {
+    sinceShip = 0;
+    api::shipLogs();
+  }
   if (r == api::Result::Updated) {
     xSemaphoreTake(gStateMutex, portMAX_DELAY);
     gShared = fresh;
