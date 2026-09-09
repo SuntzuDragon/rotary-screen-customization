@@ -43,7 +43,16 @@ cd ../web && npm install && npm run build    # Worker serves web/dist
 cd ../worker && npx wrangler deploy
 ```
 
-Set `DEFAULT_LOGIN` in `wrangler.toml` to the GitHub account to track.
+Set `DEFAULT_LOGIN` in `wrangler.toml` to the GitHub account to track. The
+Worker is bound to `hdog.imcb.dev`; wrangler creates that DNS record on deploy
+as long as the `imcb.dev` zone is in the same Cloudflare account.
+
+If you move it to a different domain, re-check the TLS chain — the firmware pins
+root CAs (see `firmware/include/certs.h`):
+
+```bash
+echo | openssl s_client -connect <host>:443 -servername <host> 2>&1 | grep -E 'depth=|issuer='
+```
 
 ### 2. Firmware
 

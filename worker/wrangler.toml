@@ -2,6 +2,12 @@ name = "rotary-stats"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
+# Custom domain. Wrangler creates the DNS record and cert on deploy, provided
+# the imcb.dev zone is in this Cloudflare account.
+routes = [
+  { pattern = "hdog.imcb.dev", custom_domain = true },
+]
+
 # Static config UI. run_worker_first so /api/* is always handled by our router;
 # anything the router does not claim is forwarded to ASSETS explicitly.
 [assets]

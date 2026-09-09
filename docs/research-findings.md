@@ -107,3 +107,37 @@ re-check command.
 This is also why `api::syncClock()` runs before the first request: certificate
 validity is checked against the system clock, and a device that thinks it is
 1970 fails the handshake regardless of which root is embedded.
+
+## 7. Event synthesis verified by fault injection
+
+The snapshot-diff path had no natural test (the real numbers do not move on
+demand), so the cached snapshot in KV was rewound and the cron re-run:
+
+| Rewound by | Event produced |
+|---|---|
+| `atomic-rollback` stars -2 | `star +2` |
+| `chainsaw` openPRs -1 | `pr +1` |
+| `chainsaw` openIssues +1 | `issue -1` |
+| `piano` forks +3 | `fork -3` |
+
+All four appeared with correct signs and reached the device payload ahead of the
+GitHub feed events. This is the mechanism the ambient LED pulse fires on.
+
+## 8. Firmware builds
+
+`pio run -e crowpanel128` against `espressif32@6.5.0` (Arduino-ESP32 2.0.14),
+LVGL 8.3.11, LovyanGFX 1.1.12:
+
+```
+RAM:   35.6% (116544 / 327680 bytes)
+Flash: 32.1% (1347477 / 4194304 bytes)   [4MB OTA slot, dual-slot partition table]
+```
+
+Ample headroom in both. Not yet flashed — see the open items in the README.
+
+## 9. Deployment domain
+
+Target is `hdog.imcb.dev`. Checked on 2026-09-08: `imcb.dev` is already behind
+Cloudflare and presents a Google Trust Services `WE1` leaf chaining to **GTS
+Root R4** — the same root as `workers.dev`, so the embedded CA bundle needs no
+change for the custom domain.

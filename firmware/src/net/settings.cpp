@@ -3,7 +3,7 @@
 #include <Preferences.h>
 
 #ifndef DEFAULT_BASE_URL
-#define DEFAULT_BASE_URL "https://rotary-stats.workers.dev"
+#define DEFAULT_BASE_URL "https://hdog.imcb.dev"
 #endif
 
 namespace {

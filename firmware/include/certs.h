@@ -3,13 +3,13 @@
 /**
  * Root CAs for the stats API.
  *
- * Verified on 2026-09-08: workers.dev presents CN=workers.dev, issued by
- * "Google Trust Services / WE1", chaining to GTS Root R4. R1 is embedded as
- * well so a CA rotation inside Google's roots does not brick a device in the
- * field.
+ * Verified on 2026-09-08 for both workers.dev and imcb.dev (the deployment
+ * domain): each presents a leaf issued by "Google Trust Services / WE1",
+ * chaining to GTS Root R4. R1 is embedded as well so a rotation within Google's
+ * roots does not brick a device in the field.
  *
- * To re-check:
- *   echo | openssl s_client -connect workers.dev:443 -servername workers.dev \
+ * Re-check after any DNS or CDN change:
+ *   echo | openssl s_client -connect hdog.imcb.dev:443 -servername hdog.imcb.dev \
  *     2>&1 | grep -E 'depth=|issuer='
  *
  * Certificate validation needs a correct clock -- call syncClock() (NTP) before
