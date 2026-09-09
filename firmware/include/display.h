@@ -9,7 +9,6 @@
 class CrowPanelDisplay : public lgfx::LGFX_Device {
   lgfx::Panel_GC9A01 _panel;
   lgfx::Bus_SPI _bus;
-  lgfx::Light_PWM _light;
 
  public:
   CrowPanelDisplay() {
@@ -45,15 +44,10 @@ class CrowPanelDisplay : public lgfx::LGFX_Device {
       cfg.bus_shared = false;
       _panel.config(cfg);
     }
-    {
-      auto cfg = _light.config();
-      cfg.pin_bl = PIN_LCD_BL;
-      cfg.invert = false;
-      cfg.freq = 12000;
-      cfg.pwm_channel = 7;
-      _light.config(cfg);
-      _panel.setLight(&_light);
-    }
+    // No lgfx Light is attached on purpose: LovyanGFX's Light_PWM did not drive
+    // this board's backlight at all (panel initialised fine, screen stayed
+    // completely dark). Elecrow's own firmware drives GPIO46 with ledc
+    // directly and that is what works -- see backlight.h.
     setPanel(&_panel);
   }
 };

@@ -7,7 +7,10 @@
 #define LV_CONF_SKIP 0
 
 #define LV_COLOR_DEPTH 16
-#define LV_COLOR_16_SWAP 1        // GC9A01 over SPI wants byte-swapped 565
+// 0, not 1. The flush hands LovyanGFX an lgfx::rgb565_t buffer, which is
+// already the panel's native order. Setting this to 1 as well swaps the bytes
+// twice and the colours come out wrong.
+#define LV_COLOR_16_SWAP 0
 
 #define LV_MEM_CUSTOM 0
 #define LV_MEM_SIZE (48U * 1024U)

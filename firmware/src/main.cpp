@@ -1,8 +1,10 @@
 #include <Arduino.h>
+#include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <lvgl.h>
 
 #include "board_pins.h"
+#include "backlight.h"
 #include "display.h"
 #include "model/stats.h"
 #include "net/api_client.h"
@@ -13,10 +15,14 @@
 namespace {
 
 CrowPanelDisplay gLcd;
+Adafruit_NeoPixel gLeds(5, PIN_RGB_LED, NEO_GRB + NEO_KHZ800);
 ImprovSerial gImprov;
 Stats gStats{};
 
-constexpr size_t kDrawLines = 40;
+// Full-screen double buffers, as the factory firmware uses. 240*240*2 = 115KB
+// each; irrelevant against 8MB of PSRAM, and it keeps DMA from racing a partial
+// buffer that LVGL is already redrawing.
+constexpr size_t kDrawLines = SCREEN_H;
 lv_disp_draw_buf_t gDrawBuf;
 lv_color_t* gBuf1 = nullptr;
 lv_color_t* gBuf2 = nullptr;
@@ -48,12 +54,11 @@ uint8_t readTouchRegister(uint8_t reg) {
 /* ------------------------------ LVGL glue ------------------------------ */
 
 void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* px) {
-  const uint32_t w = area->x2 - area->x1 + 1;
-  const uint32_t h = area->y2 - area->y1 + 1;
-  gLcd.startWrite();
-  gLcd.setAddrWindow(area->x1, area->y1, w, h);
-  gLcd.writePixels(reinterpret_cast<uint16_t*>(px), w * h, true);
-  gLcd.endWrite();
+  // Mirrors Elecrow's factory flush. pushImageDMA with an explicit rgb565_t
+  // source lets LovyanGFX handle the address window and byte order itself.
+  if (gLcd.getStartCount() > 0) gLcd.endWrite();
+  gLcd.pushImageDMA(area->x1, area->y1, area->x2 - area->x1 + 1, area->y2 - area->y1 + 1,
+                    reinterpret_cast<lgfx::rgb565_t*>(&px->full));
   lv_disp_flush_ready(drv);
 }
 
@@ -102,7 +107,7 @@ bool bringUpNetwork(const String& ssid, const String& pass) {
 void pollNow() {
   const api::Result r = api::poll(gStats);
   if (r == api::Result::Updated) {
-    gLcd.setBrightness(map(gStats.brightness, 0, 100, 0, 255));
+    backlight::set(gStats.brightness);
     ui::setStats(gStats);
   } else if (r == api::Result::Failed && !gStats.valid) {
     ui::showStatus("No data yet", "Waiting for the stats service");
@@ -148,6 +153,37 @@ void loadDemoStats() {
 
 }  // namespace
 
+#ifdef DIAG_BACKLIGHT
+/**
+ * Backlight-only bring-up build. Blinks GPIO46 forever with nothing else
+ * running, so the panel can be observed at leisure instead of during a 2.7s
+ * window at boot.
+ */
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  Serial.println("[diag] backlight-only build: GPIO46 1s on / 1s off, forever");
+  // Board power rails must come up before anything else -- see board_pins.h.
+  pinMode(PIN_PWR_EN1, OUTPUT);
+  digitalWrite(PIN_PWR_EN1, HIGH);
+  pinMode(PIN_PWR_EN2, OUTPUT);
+  digitalWrite(PIN_PWR_EN2, HIGH);
+  pinMode(PIN_PWR_IND, OUTPUT);
+  digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
+  Serial.println("[diag] power rails GPIO1/GPIO2 HIGH");
+  pinMode(PIN_LCD_BL, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(PIN_LCD_BL, HIGH);
+  Serial.println("[diag] GPIO46 HIGH  <- backlight should be ON now");
+  delay(1000);
+  digitalWrite(PIN_LCD_BL, LOW);
+  Serial.println("[diag] GPIO46 LOW   <- backlight should be OFF now");
+  delay(1000);
+}
+#else
+
 void setup() {
   Serial.begin(115200);
   delay(300);  // let the USB CDC host attach before the first line
@@ -158,10 +194,38 @@ void setup() {
                 static_cast<unsigned>(ESP.getFreeHeap()));
   settings::begin();
 
+  // Board power rails must come up before anything else -- see board_pins.h.
+  pinMode(PIN_PWR_EN1, OUTPUT);
+  digitalWrite(PIN_PWR_EN1, HIGH);
+  pinMode(PIN_PWR_EN2, OUTPUT);
+  digitalWrite(PIN_PWR_EN2, HIGH);
+  pinMode(PIN_PWR_IND, OUTPUT);
+  digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
+  Serial.println("[boot] power rails GPIO1/GPIO2 HIGH");
+
   Serial.println("[boot] display init");
-  gLcd.init();
+  const bool lcdOk = gLcd.init();
+  Serial.printf("[boot] gLcd.init() -> %s\n", lcdOk ? "true" : "false");
   gLcd.setRotation(0);
-  gLcd.setBrightness(200);
+  gLcd.initDMA();
+
+  // The NeoPixel ring powers up in an undefined state and glows random
+  // colours. Explicitly clear it.
+  gLeds.begin();
+  gLeds.clear();
+  gLeds.show();
+  backlight::begin(80);
+  Serial.println("[boot] backlight on (GPIO46 ledc ch0)");
+
+  // Panel self-test: a solid fill before LVGL exists. If this flashes, the SPI
+  // bus and backlight are both good and any later blankness is a UI bug.
+  gLcd.fillScreen(0xF800);  // red
+  delay(250);
+  gLcd.fillScreen(0x07E0);  // green
+  delay(250);
+  gLcd.fillScreen(0x0000);
+  Serial.println("[boot] panel self-test done");
+
   initLvgl();
   ui::init(0xF74C00);
 
@@ -267,3 +331,4 @@ void loop() {
 
   delay(4);
 }
+#endif  // DIAG_BACKLIGHT
