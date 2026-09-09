@@ -295,7 +295,7 @@ async function configView(session: api.Session) {
     class: 'range',
   }) as HTMLInputElement;
   rot.value = String(config.theme.rotSec);
-  const rotLabel = el('span', { class: 'tag' }, `${config.theme.rotSec || 'off'}`);
+  const rotLabel = el('span', { class: 'tag' }, config.theme.rotSec ? `${config.theme.rotSec}s` : 'off');
   rot.oninput = () => {
     rotLabel.textContent = rot.value === '0' ? 'off' : `${rot.value}s`;
   };

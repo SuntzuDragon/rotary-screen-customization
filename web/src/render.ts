@@ -59,13 +59,20 @@ function arc(ctx: Ctx2D, radius: number, from: number, to: number, width: number
 }
 
 /** Small dots around the bezel showing which card of N you are on. */
-function positionDots(ctx: Ctx2D, count: number, active: number, accent: string) {
+function positionDots(
+  ctx: Ctx2D,
+  count: number,
+  active: number,
+  accent: string,
+  radius = R - 6,
+) {
   if (count <= 1) return;
-  const radius = R - 6;
   const spread = Math.min(TAU * 0.28, count * 0.09);
   for (let i = 0; i < count; i++) {
     const t = count === 1 ? 0 : i / (count - 1) - 0.5;
-    const a = Math.PI / 2 + t * spread; // clustered at 6 o'clock
+    // Subtract: canvas angles grow clockwise from 3 o'clock, so adding would
+    // put card 0 on the right and read backwards.
+    const a = Math.PI / 2 - t * spread; // clustered at 6 o'clock
     ctx.beginPath();
     ctx.fillStyle = i === active ? accent : 'rgba(255,255,255,0.22)';
     ctx.arc(CX + Math.cos(a) * radius, CY + Math.sin(a) * radius, i === active ? 3 : 2, 0, TAU);
@@ -133,8 +140,8 @@ function deckRepo(ctx: Ctx2D, d: DevicePayload, repo: PayloadRepo, idx: number) 
   const { accent } = d.theme;
   ctx.textAlign = 'center';
 
-  // Title with language colour dot.
-  const titlePx = fitText(ctx, repo.n, widthAt(CY - 66) - 16, 17, 700);
+  // Title with language colour dot, nudged right to leave room for the dot.
+  fitText(ctx, repo.n, widthAt(CY - 66) - 20, 17, 700);
   const w = ctx.measureText(repo.n).width;
   ctx.fillStyle = '#fff';
   ctx.fillText(repo.n, CX + 6, CY - 60);
@@ -144,7 +151,6 @@ function deckRepo(ctx: Ctx2D, d: DevicePayload, repo: PayloadRepo, idx: number) 
     ctx.arc(CX - w / 2 - 3, CY - 65, 4, 0, TAU);
     ctx.fill();
   }
-  void titlePx;
 
   statCell(ctx, CX - 40, CY - 12, compact(repo.s), 'STARS', accent);
   statCell(ctx, CX + 40, CY - 12, compact(repo.f), 'FORKS', accent);
@@ -173,43 +179,58 @@ function deckRepo(ctx: Ctx2D, d: DevicePayload, repo: PayloadRepo, idx: number) 
 function deckSpark(ctx: Ctx2D, d: DevicePayload, repo: PayloadRepo, idx: number) {
   const { accent } = d.theme;
   const weeks = repo.w;
-  const inner = R - 46;
-  const outer = R - 12;
+  const inner = R - 40;
+  const outer = R - 8;
 
   ctx.textAlign = 'center';
 
   if (weeks.length === 0) {
-    font(ctx, 12, 600);
+    font(ctx, 13, 600);
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.fillText('no commit data yet', CX, CY + 4);
   } else {
+    // Baseline ring, so a week with no commits reads as an empty slot rather
+    // than as a rendering failure. These repos are bursty: typically only 3-8
+    // of 52 weeks are non-zero.
+    arc(ctx, inner, 0, TAU, 1, 'rgba(255,255,255,0.08)');
+
     const peak = Math.max(...weeks, 1);
     const step = TAU / weeks.length;
     weeks.forEach((v, i) => {
       const a = TOP + i * step;
-      const len = v === 0 ? 1.5 : 3 + (outer - inner - 3) * (v / peak);
       ctx.beginPath();
-      ctx.strokeStyle = v === 0 ? 'rgba(255,255,255,0.10)' : accent;
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.moveTo(CX + Math.cos(a) * inner, CY + Math.sin(a) * inner);
-      ctx.lineTo(CX + Math.cos(a) * (inner + len), CY + Math.sin(a) * (inner + len));
+      if (v === 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'butt';
+        ctx.moveTo(CX + Math.cos(a) * inner, CY + Math.sin(a) * inner);
+        ctx.lineTo(CX + Math.cos(a) * (inner + 2), CY + Math.sin(a) * (inner + 2));
+      } else {
+        const len = 4 + (outer - inner - 4) * (v / peak);
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.moveTo(CX + Math.cos(a) * inner, CY + Math.sin(a) * inner);
+        ctx.lineTo(CX + Math.cos(a) * (inner + len), CY + Math.sin(a) * (inner + len));
+      }
       ctx.stroke();
     });
 
-    font(ctx, 10, 600);
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillText(`peak ${peak}/wk`, CX, CY + 34);
+    font(ctx, 13, 700);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText(`${peak}`, CX, CY + 28);
     font(ctx, 9, 600);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('52 WEEKS', CX, CY + 50);
+    ctx.fillStyle = 'rgba(255,255,255,0.42)';
+    ctx.fillText('PEAK WEEK', CX, CY + 41);
+    ctx.fillText('52 WEEKS', CX, CY + 56);
   }
 
-  const px = fitText(ctx, repo.n, widthAt(CY) - 60, 16, 700);
+  const px = fitText(ctx, repo.n, widthAt(CY) - 90, 18, 700);
   ctx.fillStyle = '#fff';
-  ctx.fillText(repo.n, CX, CY + px * 0.35 - 6);
+  ctx.fillText(repo.n, CX, CY + px * 0.35 - 10);
 
-  positionDots(ctx, d.repos.length, idx, accent);
+  // Inside the ring: the bars already own the bezel out to R-8.
+  positionDots(ctx, d.repos.length, idx, accent, inner - 14);
 }
 
 function deckActivity(ctx: Ctx2D, d: DevicePayload) {
@@ -217,40 +238,47 @@ function deckActivity(ctx: Ctx2D, d: DevicePayload) {
   ctx.textAlign = 'center';
   font(ctx, 11, 700);
   ctx.fillStyle = dim(accent, 0.9);
-  ctx.fillText('ACTIVITY', CX, CY - 74);
+  ctx.fillText('ACTIVITY', CX, CY - 78);
 
   if (d.ev.length === 0) {
-    font(ctx, 12, 600);
+    font(ctx, 13, 600);
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.fillText('all quiet', CX, CY + 4);
     return;
   }
 
-  const rows = d.ev.slice(0, 5);
+  const rows = d.ev.slice(0, 4);
+  const rowH = 30;
+  const block = rows.length * rowH;
+  const top = CY - block / 2 + 20;
+
+  // One column width for every row, measured at the widest row's extreme. Using
+  // widthAt() per row staggers the left edges and looks broken.
+  const extreme = Math.max(Math.abs(top - rowH + 4 - CY), Math.abs(top + block - rowH - CY));
+  const colW = Math.min(widthAt(CY + extreme, 12), 168);
+  const left = CX - colW / 2;
+  const right = CX + colW / 2;
+
   rows.forEach((e, i) => {
-    const y = CY - 44 + i * 26;
-    const max = widthAt(y) - 12;
+    const y = top + i * rowH;
     const short = e.r.includes('/') ? e.r.split('/')[1]! : e.r;
     const delta = e.d > 0 ? `+${e.d}` : e.d < 0 ? String(e.d) : '';
-
-    font(ctx, 12, 700);
-    ctx.fillStyle = '#fff';
     const label = `${delta ? `${delta} ` : ''}${EVENT_LABEL[e.k] ?? e.k}`;
-    const nameMax = max - ctx.measureText(label).width - 10;
 
     ctx.textAlign = 'left';
-    const left = CX - max / 2;
+    font(ctx, 13, 700);
     ctx.fillStyle = e.k === 'star' ? accent : '#fff';
     ctx.fillText(label, left, y);
+    const labelW = ctx.measureText(label).width;
 
-    font(ctx, 11, 500);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(ellipsize(ctx, short, Math.max(20, nameMax)), left + 46, y);
+    font(ctx, 12, 500);
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.fillText(ellipsize(ctx, short, colW - labelW - 8), left + labelW + 8, y);
 
-    font(ctx, 9, 500);
-    ctx.fillStyle = 'rgba(255,255,255,0.32)';
     ctx.textAlign = 'right';
-    ctx.fillText(ago(e.at), CX + max / 2, y + 11);
+    font(ctx, 10, 500);
+    ctx.fillStyle = 'rgba(255,255,255,0.34)';
+    ctx.fillText(ago(e.at), right, y + 13);
     ctx.textAlign = 'center';
   });
 }
