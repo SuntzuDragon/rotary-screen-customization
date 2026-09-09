@@ -21,7 +21,7 @@ run_worker_first = true
 
 [[kv_namespaces]]
 binding = "DEVICES"
-id = "PLACEHOLDER_REPLACE_AFTER_KV_CREATE"
+id = "8fd735bcb0a44f79bf3d73b6befd71ea"
 
 # Refresh GitHub data on a fixed schedule so device polls always hit warm cache
 # and the GitHub rate limit is bounded regardless of how many devices exist.

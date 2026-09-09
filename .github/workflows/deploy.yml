@@ -1,0 +1,65 @@
+name: Deploy worker
+
+# The Worker serves web/dist as its static assets, so the UI has to be built
+# before the deploy step -- a worker-only change still needs those assets
+# present in the upload.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - 'web/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            worker/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci --prefix web
+          npm ci --prefix worker
+
+      # Typecheck both halves before anything reaches production. The device
+      # payload shape is duplicated between worker and web, so a break here is
+      # exactly the kind of thing that would otherwise ship silently.
+      - name: Typecheck
+        run: |
+          npm run typecheck --prefix worker
+          npm run typecheck --prefix web
+
+      - name: Build UI
+        run: npm run build --prefix web
+
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: worker
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://rotary-stats.imcb01.workers.dev/api/health)
+            echo "health -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 3
+          done
+          echo "worker did not come back healthy after deploy"
+          exit 1
