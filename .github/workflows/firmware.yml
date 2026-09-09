@@ -23,14 +23,23 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+          cache: pip
 
+      # The key includes the run id so the cache is *written* every run, with
+      # restore-keys pulling in the previous one. A fixed key only ever saves
+      # once, so the cache goes stale immediately and every build is cold --
+      # which is what was happening: ~3 minutes of recompiling the Arduino
+      # framework and LVGL, neither of which changes between runs.
       - name: Cache PlatformIO
         uses: actions/cache@v6
         with:
           path: |
             ~/.platformio
-            firmware/.pio
-          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+            firmware/.pio/cache
+          key: pio-${{ hashFiles('firmware/platformio.ini', 'firmware/include/lv_conf.h') }}-${{ github.run_id }}
+          restore-keys: |
+            pio-${{ hashFiles('firmware/platformio.ini', 'firmware/include/lv_conf.h') }}-
+            pio-
 
       - name: Install toolchain
         run: pip install --quiet platformio esptool
