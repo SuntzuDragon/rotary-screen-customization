@@ -19,9 +19,19 @@ directory = "../web/dist"
 binding = "ASSETS"
 run_worker_first = true
 
+# KV keeps the GitHub snapshot and firmware images: read constantly, written
+# rarely. That is what KV is for.
 [[kv_namespaces]]
 binding = "DEVICES"
 id = "8fd735bcb0a44f79bf3d73b6befd71ea"
+
+# D1 holds device state -- config, auth, status, logs. Small records written
+# often, and strongly consistent, so a pushed setting is visible immediately
+# instead of after KV's 15-30s read lag.
+[[d1_databases]]
+binding = "DB"
+database_name = "rotary-stats"
+database_id = "f53e063d-75a4-46c5-ac62-c786956ca102"
 
 # Refresh GitHub data on a fixed schedule so device polls always hit warm cache
 # and the GitHub rate limit is bounded regardless of how many devices exist.

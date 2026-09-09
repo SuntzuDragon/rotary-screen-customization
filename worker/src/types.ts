@@ -1,5 +1,6 @@
 export interface Env {
   DEVICES: KVNamespace;
+  DB: D1Database;
   ASSETS: Fetcher;
   GH_TOKEN: string;
   ENC_KEY: string;
