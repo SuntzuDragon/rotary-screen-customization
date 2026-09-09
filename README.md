@@ -8,6 +8,8 @@ a browser over USB: no phone, no captive portal, no pairing code.
 
 ![config UI](docs/ui-config.png)
 
+**Live:** <https://hdog.imcb.dev> (also <https://rotary-stats.imcb01.workers.dev>)
+
 ## How it fits together
 
 ```
@@ -33,6 +35,8 @@ answered `304`, zero bytes) and the GitHub token never leaves the server.
 
 ### 1. Worker
 
+Already deployed. To stand up a fresh copy:
+
 ```bash
 cd worker
 npm install
@@ -42,6 +46,11 @@ npx wrangler secret put ENC_KEY              # openssl rand -base64 32
 cd ../web && npm install && npm run build    # Worker serves web/dist
 cd ../worker && npx wrangler deploy
 ```
+
+Pushes to `main` that touch `worker/` or `web/` redeploy automatically via
+`.github/workflows/deploy.yml`, which typechecks both halves, builds the UI, and
+smoke-tests `/api/health` afterwards. It needs a `CLOUDFLARE_API_TOKEN` repo
+secret (the "Edit Cloudflare Workers" token template).
 
 Set `DEFAULT_LOGIN` in `wrangler.toml` to the GitHub account to track. The
 Worker is bound to `hdog.imcb.dev`; wrangler creates that DNS record on deploy
