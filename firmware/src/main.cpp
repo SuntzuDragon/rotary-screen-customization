@@ -519,6 +519,7 @@ void setup() {
   gStateMutex = xSemaphoreCreateMutex();
   gImprov.begin(Serial, "Rotary Stats", "rotary-stats", FW_VERSION, "ESP32-S3");
   gImprov.setNextUrl([]() { return settings::configUrl(); });
+  gImprov.setHostAttached([]() { return static_cast<bool>(Serial); });
   gImprov.setConnectHandler([](const String& ssid, const String& pass) {
     // Hand the work to the network task and wait here. Only LVGL is pumped:
     // the browser is blocked on this RPC result so Improv has nothing to

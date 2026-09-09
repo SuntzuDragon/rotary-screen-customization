@@ -58,18 +58,15 @@ void ImprovSerial::sendPacket(uint8_t type, const uint8_t* data, size_t len) {
 
   _io->write(out, n);
 
-  // No flush().
+  // Flush only when a host is attached.
   //
-  // flush() waits for the USB TX buffer to drain, and with no host attached it
-  // never drains -- so this call blocked the entire device at boot, from the
-  // moment setState() sent its first packet until something opened the port.
-  // Every downstream symptom came from here: a frozen splash screen, Wi-Fi
-  // that appeared to take two minutes, and a device that sprang to life the
-  // instant anyone looked at it. setTxTimeoutMs(0) makes write() safe, but it
-  // does not govern flush().
-  //
-  // The write alone is sufficient: when a host *is* attached (the only time
-  // Improv is in use) the driver drains it immediately.
+  // flush() waits for the USB TX buffer to drain and never returns with nothing
+  // connected -- that single call froze the device at boot, since setState()
+  // sends a packet during setup(). setTxTimeoutMs(0) makes write() safe but
+  // does not govern flush(). Skipping it entirely is also wrong: the browser
+  // can time out waiting for a reply still sitting in the buffer. So: flush
+  // when someone is listening, never otherwise.
+  if (!_hostAttached || _hostAttached()) _io->flush();
 }
 
 void ImprovSerial::sendCurrentState() {
@@ -168,6 +165,7 @@ void ImprovSerial::handleRpc(const uint8_t* data, uint8_t len) {
     return;
   }
   const uint8_t cmd = data[0];
+  devlog::logf("[improv] rpc cmd=0x%02X len=%u\n", cmd, static_cast<unsigned>(len));
   const uint8_t dataLen = data[1];
   const uint8_t* body = data + 2;
   if (2 + dataLen > len) {
@@ -239,7 +237,16 @@ void ImprovSerial::handlePacket(uint8_t type, const uint8_t* data, uint8_t len) 
 void ImprovSerial::loop() {
   if (!_io) return;
 
+  // Byte-level accounting. The question we cannot answer from the outside is
+  // whether the browser's bytes reach the device at all, or arrive and fail to
+  // parse -- and the browser owns the serial port at exactly that moment, so
+  // this has to be recorded here and shipped over Wi-Fi.
+  static uint32_t bytesSeen = 0;
+  static uint32_t lastReport = 0;
+  const bool had = _io->available() > 0;
+
   while (_io->available()) {
+    bytesSeen++;
     const uint8_t b = static_cast<uint8_t>(_io->read());
 
     // Resynchronise on the magic rather than assuming packet alignment: the
@@ -274,5 +281,11 @@ void ImprovSerial::loop() {
       sendError(ERR_INVALID_PACKET);
     }
     _len = 0;
+  }
+
+  if (had && millis() - lastReport > 1000) {
+    lastReport = millis();
+    devlog::logf("[improv] rx %lu bytes total, parser has %u buffered\n",
+                 static_cast<unsigned long>(bytesSeen), static_cast<unsigned>(_len));
   }
 }

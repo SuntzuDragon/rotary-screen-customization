@@ -27,6 +27,21 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
   onStatus('Opening the port…');
   await port.open({ baudRate: 115200 });
 
+  // Clear DTR and RTS immediately.
+  //
+  // On this board RTS drives EN and DTR drives IO0. Chrome asserts both when it
+  // opens a port, which holds the chip in reset -- the device then receives
+  // nothing and answers nothing, and Improv times out against a board that is
+  // working perfectly. Sending the same request from a script that clears these
+  // first gets a full, correct response.
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+    // Opening may still have bounced the board; give it a moment to come back.
+    await new Promise((r) => setTimeout(r, 1500));
+  } catch {
+    // Not fatal: some platforms disallow setSignals, and the probe retries anyway.
+  }
+
   const improv = new ImprovSerial(port, quiet);
   let info: Connection['info'];
   try {

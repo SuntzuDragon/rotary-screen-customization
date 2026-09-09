@@ -36,11 +36,21 @@ class ImprovSerial {
   using ConnectFn = std::function<bool(const String& ssid, const String& password)>;
   /** URL the browser should open next; empty to send none. */
   using UrlFn = std::function<String()>;
+  /** True when a USB host has the port open. */
+  using HostFn = std::function<bool()>;
 
   void begin(Stream& io, const char* deviceName, const char* firmware, const char* version,
              const char* chip);
   void setConnectHandler(ConnectFn fn) { _connect = fn; }
   void setNextUrl(UrlFn fn) { _nextUrl = fn; }
+  /**
+   * Lets the sender flush only when a host is present. flush() waits for the
+   * USB TX buffer to drain and never returns with nothing attached -- that
+   * froze the whole device at boot. But when the browser *is* talking to us,
+   * flushing matters: without it the reply can sit in the buffer long enough
+   * for the client to give up.
+   */
+  void setHostAttached(HostFn fn) { _hostAttached = fn; }
   void setState(State s);
   void loop();
 
@@ -62,6 +72,7 @@ class ImprovSerial {
 
   ConnectFn _connect;
   UrlFn _nextUrl;
+  HostFn _hostAttached;
   State _state = STATE_AUTHORIZED;
 
   static constexpr size_t kMaxPacket = 256;
