@@ -15,6 +15,27 @@ const REPO_URL = 'https://github.com/SuntzuDragon/rotary-screen-customization';
 declare const __BUILD_SHA__: string;
 declare const __BUILD_TIME__: string;
 
+/** Dates are shown in the viewer's own timezone, not UTC. */
+function localTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+}
+
+const localDate = (epochSeconds: number): string =>
+  new Date(epochSeconds * 1000).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
 /** Build stamp, so it is obvious whether a hard reload picked up a new deploy. */
 function buildFooter() {
   return el(
@@ -28,11 +49,11 @@ function buildFooter() {
         href: `${REPO_URL}/commit/${__BUILD_SHA__}`,
         target: '_blank',
         rel: 'noreferrer',
-        title: `built ${__BUILD_TIME__} UTC`,
+        title: `built ${localTime(__BUILD_TIME__)}`,
       },
       `site build ${__BUILD_SHA__}`,
     ),
-    ` · ${__BUILD_TIME__} UTC`,
+    ` · ${localTime(__BUILD_TIME__)}`,
   );
 }
 
@@ -80,6 +101,13 @@ function firmwareCard(session: api.Session | null) {
   const fwLog = el('pre', { class: 'log' });
   const fwLogBox = el('details', { class: 'adv' }, el('summary', {}, 'Flashing log'), fwLog);
   const flashBtn = el('button', { class: 'primary' }, 'Flash over USB');
+  const eraseBox = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const eraseRow = el(
+    'label',
+    { class: 'row' },
+    eraseBox,
+    el('span', {}, 'Also erase saved Wi-Fi and device identity (factory reset)'),
+  );
   const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
   const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
 
@@ -115,7 +143,7 @@ function firmwareCard(session: api.Session | null) {
       const keep = fwSelect.value;
       fwSelect.replaceChildren(
         ...versions.map((v) => {
-          const when = new Date(v.uploadedAt * 1000).toISOString().slice(0, 10);
+          const when = localDate(v.uploadedAt);
           const tags = [
             v.version === index?.latest ? 'latest' : '',
             v.version === runningVersion ? 'installed' : '',
@@ -160,17 +188,26 @@ function firmwareCard(session: api.Session | null) {
       logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
       fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
 
-      await flashFirmware(image, {
-        log: logLine,
-        progress: (f) => {
-          fwBar.style.width = `${Math.round(f * 100)}%`;
-          fwStatus.replaceChildren(note(`Writing… ${Math.round(f * 100)}%`));
+      await flashFirmware(
+        image,
+        {
+          log: logLine,
+          progress: (f) => {
+            fwBar.style.width = `${Math.round(f * 100)}%`;
+            fwStatus.replaceChildren(note(`Writing… ${Math.round(f * 100)}%`));
+          },
         },
-      });
+        { eraseNvs: eraseBox.checked },
+      );
 
       fwBar.style.width = '100%';
       fwStatus.replaceChildren(
-        note('Flashed. The device is restarting — Wi-Fi settings were kept.', 'ok'),
+        note(
+          eraseBox.checked
+            ? 'Flashed and reset. The device restarted with no Wi-Fi saved — set it up again below.'
+            : 'Flashed. The device is restarting — Wi-Fi settings were kept.',
+          'ok',
+        ),
       );
       setTimeout(() => void paint(), 12000);
     } catch (err) {
@@ -193,6 +230,7 @@ function firmwareCard(session: api.Session | null) {
     fwUpload.disabled = true;
     fwStatus.replaceChildren(note(`Uploading ${(file.size / 1024).toFixed(0)} KB…`));
     try {
+      // Version labels stay ISO: they are identifiers, not display text.
       await api.uploadFirmware(session, file, `custom-${new Date().toISOString().slice(0, 10)}`);
       await paint();
     } catch (err) {
@@ -213,6 +251,7 @@ function firmwareCard(session: api.Session | null) {
     ),
     el('label', { class: 'lbl' }, 'Version'),
     fwSelect,
+    eraseRow,
     flashBtn,
     fwBarWrap,
     fwStatus,

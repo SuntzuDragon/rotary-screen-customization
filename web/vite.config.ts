@@ -22,7 +22,8 @@ function buildSha(): string {
 export default defineConfig({
   define: {
     __BUILD_SHA__: JSON.stringify(buildSha()),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString().replace('T', ' ').slice(0, 16)),
+    // Full ISO instant; the page renders it in the viewer's own timezone.
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   build: { outDir: 'dist', emptyOutDir: true, target: 'es2022' },
   server: {

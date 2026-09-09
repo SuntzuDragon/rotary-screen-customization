@@ -210,8 +210,13 @@ void pollOnce() {
 }
 
 void netTask(void*) {
+  devlog::logf("[net] task started on core %d\n", xPortGetCoreID());
   if (settings::hasWifi()) {
-    if (bringUpNetwork(settings::ssid(), settings::password())) pollOnce();
+    if (bringUpNetwork(settings::ssid(), settings::password())) {
+      pollOnce();
+    } else {
+      devlog::logf("[net] initial bring-up FAILED\n");
+    }
   }
 
   uint32_t lastPoll = millis();
@@ -230,6 +235,19 @@ void netTask(void*) {
     if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 60000UL) {
       lastPoll = millis();
       pollOnce();
+    }
+
+    // Retry a failed bring-up. Without this a single missed association at boot
+    // left the device idle forever with no way back except a power cycle.
+    static uint32_t lastRetry = 0;
+    if (!gRegistered && settings::hasWifi() && !gConnectRequested &&
+        millis() - lastRetry > 30000UL) {
+      lastRetry = millis();
+      devlog::logf("[net] retrying bring-up\n");
+      if (bringUpNetwork(settings::ssid(), settings::password())) {
+        pollOnce();
+        lastPoll = millis();
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -270,6 +288,7 @@ void serviceUi() {
     return;
   }
   shown = phase;
+  devlog::logf("[ui] phase -> %d (%s)\n", static_cast<int>(phase), detail);
 
   const bool wifiFailed = strcmp(detail, "wifi") == 0;
   switch (phase) {

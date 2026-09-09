@@ -33,9 +33,21 @@ const REGIONS: { name: string; start: number; end: number }[] = [
  * Driving esptool-js directly keeps the whole flow on one screen and lets the
  * caller render progress and logs however it likes.
  */
+export interface FlashOpts {
+  /**
+   * Write the NVS region too, wiping saved Wi-Fi and the device's identity.
+   *
+   * This is the factory reset. It works with nothing but a USB cable, so it
+   * recovers a device that is offline, mis-provisioned, or refusing to talk --
+   * the cases where a software reset button cannot reach it.
+   */
+  eraseNvs?: boolean;
+}
+
 export async function flashFirmware(
   image: ArrayBuffer,
   hooks: FlashHooks,
+  opts: FlashOpts = {},
 ): Promise<void> {
   if (!('serial' in navigator)) {
     throw new Error('This browser has no Web Serial. Use desktop Chrome, Edge, or Opera.');
@@ -59,22 +71,35 @@ export async function flashFirmware(
     hooks.log(`detected ${chip}`);
 
     const bytes = new Uint8Array(image);
-    const fileArray = REGIONS.filter((r) => r.start < bytes.length).map((r) => {
-      const end = r.end < 0 ? bytes.length : Math.min(r.end, bytes.length);
-      return { data: bytes.subarray(r.start, end), address: r.start };
-    });
+    // A factory reset is simply not skipping NVS: the merged image has 0xFF
+    // there, so writing it erases the partition.
+    const regions = opts.eraseNvs
+      ? [{ name: 'everything', start: 0x0, end: -1 }]
+      : REGIONS;
+
+    const fileArray = regions
+      .filter((r) => r.start < bytes.length)
+      .map((r) => {
+        const end = r.end < 0 ? bytes.length : Math.min(r.end, bytes.length);
+        return { data: bytes.subarray(r.start, end), address: r.start };
+      });
     for (const r of fileArray) {
       hooks.log(`region 0x${r.address.toString(16)} (${r.data.length} bytes)\n`);
     }
-    hooks.log(`skipping NVS 0x${NVS_START.toString(16)}-0x${NVS_END.toString(16)} ` +
-      `to preserve Wi-Fi and device identity\n`);
-
-    // Progress is reported per file, so weight each region by its size to get a
-    // single monotonic bar across the whole write.
-    const total = fileArray.reduce((n, f) => n + f.data.length, 0);
-    const offsets = fileArray.map((_, i) =>
-      fileArray.slice(0, i).reduce((n, f) => n + f.data.length, 0),
+    hooks.log(
+      opts.eraseNvs
+        ? 'FACTORY RESET: writing NVS too — Wi-Fi and device identity will be erased\n'
+        : `skipping NVS 0x${NVS_START.toString(16)}-0x${NVS_END.toString(16)} ` +
+            'to preserve Wi-Fi and device identity\n',
     );
+
+    // Progress is reported per file. Weight each region's *fraction* by its
+    // share of the whole write rather than summing raw byte counts: esptool
+    // reports compressed bytes against an uncompressed total, so adding the
+    // numbers directly made the bar run ahead and finish around 60-70%.
+    const sizes = fileArray.map((f) => f.data.length);
+    const totalBytes = sizes.reduce((n, v) => n + v, 0);
+    const before = sizes.map((_, i) => sizes.slice(0, i).reduce((n, v) => n + v, 0));
 
     await loader.writeFlash({
       fileArray,
@@ -83,9 +108,10 @@ export async function flashFirmware(
       flashFreq: 'keep',
       eraseAll: false,
       compress: true,
-      reportProgress: (fileIndex: number, written: number) => {
-        const done = (offsets[fileIndex] ?? 0) + written;
-        hooks.progress(total > 0 ? Math.min(1, done / total) : 0);
+      reportProgress: (fileIndex: number, written: number, fileTotal: number) => {
+        const fraction = fileTotal > 0 ? Math.min(1, written / fileTotal) : 0;
+        const done = (before[fileIndex] ?? 0) + fraction * (sizes[fileIndex] ?? 0);
+        hooks.progress(totalBytes > 0 ? Math.min(1, done / totalBytes) : 0);
       },
     });
 
