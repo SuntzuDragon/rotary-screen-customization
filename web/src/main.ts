@@ -582,7 +582,8 @@ async function configView(session: api.Session) {
             { class: 'warn' },
             'Flashing replaces the software on the device over USB. Keep it plugged ' +
               'in until it finishes. If a flash fails the device may not boot until ' +
-              'you flash it again — your Wi-Fi settings are kept either way.',
+              'you flash it again. Wi-Fi credentials are preserved — the flasher ' +
+              'skips the region they live in.',
           ),
           el('label', { class: 'lbl' }, 'Version'),
           fwSelect,

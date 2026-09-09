@@ -323,6 +323,8 @@ void setup() {
                 static_cast<unsigned>(ESP.getFreePsram()),
                 static_cast<unsigned>(ESP.getFreeHeap()));
   settings::begin();
+  Serial.printf("[boot] device=%s provisioned=%d url=%s\n", settings::deviceId().c_str(),
+                settings::hasWifi() ? 1 : 0, settings::baseUrl().c_str());
 
   // Board power rails must come up before anything else -- see board_pins.h.
   pinMode(PIN_PWR_EN1, OUTPUT);
@@ -400,6 +402,7 @@ void setup() {
     String host = settings::baseUrl();
     host.replace("https://", "");
     host.replace("http://", "");
+    Serial.printf("[ui] setup screen: %s\n", host.c_str());
     ui::showSetup(host.c_str());
   }
 }
