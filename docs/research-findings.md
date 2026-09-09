@@ -69,3 +69,20 @@ alongside the current one.
 
 Per 5-minute refresh: 1 GraphQL + 1 events + N `commit_activity` (N = repo count,
 currently 4). ~72 requests/hour against 5000. Non-issue.
+
+## 5. End-to-end Worker verification (local, real data)
+
+Measured against `wrangler dev` with the live GitHub API:
+
+- `POST /api/device/:id/register` -> 200, trust-on-first-use accepted
+- poll with no key -> **401**; poll with a wrong key -> **401**
+- poll with the right key -> **200, 1398 bytes** including all four 52-week
+  sparklines. Budget was 4KB, so there is ample headroom.
+- repeat poll with `If-None-Match` -> **304, 0 bytes downloaded**
+
+The 202 retry behaviour reproduced exactly as predicted: the first refresh
+returned `w: []` for every repo, the second returned all 52 weeks.
+
+Weekly commit peaks: piano 228, chainsaw 177, atomic-rollback 57, cargo-avail 18
+— across only 3-8 non-zero weeks each. Bars must be normalised per repo, and the
+52-week window is the only one where anything is visible.
