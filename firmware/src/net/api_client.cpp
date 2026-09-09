@@ -12,6 +12,15 @@
 namespace {
 
 String gEtag;
+api::YieldFn gYield = nullptr;
+
+void pump(uint32_t ms) {
+  const uint32_t end = millis() + ms;
+  do {
+    if (gYield) gYield();
+    delay(5);
+  } while (static_cast<int32_t>(end - millis()) > 0);
+}
 
 uint32_t parseHexColor(const char* s) {
   if (!s || *s != '#') return 0;
@@ -43,27 +52,40 @@ WiFiClientSecure makeClient() {
 
 namespace api {
 
+void setYield(YieldFn fn) { gYield = fn; }
+
 bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs) {
   if (ssid.isEmpty()) return false;
+  Serial.printf("[net] wifi connecting to \"%s\"\n", ssid.c_str());
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), password.c_str());
 
   const uint32_t start = millis();
   while (millis() - start < timeoutMs) {
-    if (WiFi.status() == WL_CONNECTED) return true;
-    delay(200);
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[net] wifi ok, ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(),
+                    WiFi.RSSI());
+      return true;
+    }
+    pump(200);
   }
+  Serial.printf("[net] wifi FAILED, status=%d\n", static_cast<int>(WiFi.status()));
   return false;
 }
 
 bool syncClock(uint32_t timeoutMs) {
+  Serial.println("[net] ntp sync...");
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   const uint32_t start = millis();
   while (millis() - start < timeoutMs) {
     const time_t now = time(nullptr);
-    if (now > 1700000000) return true;  // clearly past 2023, so NTP has landed
-    delay(250);
+    if (now > 1700000000) {  // clearly past 2023, so NTP has landed
+      Serial.printf("[net] ntp ok, epoch=%lld\n", static_cast<long long>(now));
+      return true;
+    }
+    pump(250);
   }
+  Serial.println("[net] ntp FAILED - TLS will reject certs without a clock");
   return false;
 }
 
@@ -77,6 +99,7 @@ bool registerDevice() {
   const String body = String("{\"secret\":\"") + settings::deviceSecret() + "\"}";
   const int code = http.POST(body);
   http.end();
+  Serial.printf("[net] register -> %d\n", code);
   return code == 200;
 }
 
@@ -93,11 +116,13 @@ Result poll(Stats& out) {
   http.collectHeaders(collect, 1);
 
   const int code = http.GET();
+  Serial.printf("[net] poll -> %d\n", code);
   if (code == 304) {
     http.end();
     return Result::Unchanged;
   }
   if (code != 200) {
+    Serial.printf("[net] poll failed: %s\n", HTTPClient::errorToString(code).c_str());
     http.end();
     return Result::Failed;
   }
@@ -108,7 +133,10 @@ Result poll(Stats& out) {
   const DeserializationError err = deserializeJson(doc, http.getStream());
   const String etag = http.header("ETag");
   http.end();
-  if (err) return Result::Failed;
+  if (err) {
+    Serial.printf("[net] json parse failed: %s\n", err.c_str());
+    return Result::Failed;
+  }
 
   copyStr(out.login, sizeof(out.login), doc["p"]["login"] | "");
   copyStr(out.name, sizeof(out.name), doc["p"]["name"] | "");
@@ -157,6 +185,9 @@ Result poll(Stats& out) {
 
   out.valid = true;
   gEtag = etag;
+  Serial.printf("[net] parsed %u repos, %u events, accent=%06lX\n",
+                static_cast<unsigned>(out.repoCount), static_cast<unsigned>(out.eventCount),
+                static_cast<unsigned long>(out.accent));
   return Result::Updated;
 }
 

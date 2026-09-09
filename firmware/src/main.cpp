@@ -14,7 +14,58 @@
 namespace {
 
 CrowPanelDisplay gLcd;
-Adafruit_NeoPixel gLeds(5, PIN_RGB_LED, NEO_GRB + NEO_KHZ800);
+constexpr uint16_t kLedCount = 5;
+Adafruit_NeoPixel gLeds(kLedCount, PIN_RGB_LED, NEO_GRB + NEO_KHZ800);
+
+/* ------------------------------ LED pulse ------------------------------ */
+
+// A new star is the one event worth looking up for, so it gets a slow green
+// breath rather than a blink. Non-blocking: driven from loop().
+uint32_t gPulseStart = 0;
+bool gPulsing = false;
+int64_t gNewestSeenEvent = 0;
+
+void pulseLeds() {
+  gPulseStart = millis();
+  gPulsing = true;
+}
+
+void serviceLeds(uint32_t now) {
+  if (!gPulsing) return;
+  constexpr uint32_t kDuration = 2600;
+  const uint32_t elapsed = now - gPulseStart;
+  if (elapsed >= kDuration) {
+    gPulsing = false;
+    gLeds.clear();
+    gLeds.show();
+    return;
+  }
+  // Two breaths: sin^2 gives a soft rise and fall with no hard edges.
+  const float phase = (elapsed / static_cast<float>(kDuration)) * 2.0f * PI * 2.0f;
+  const float s = sinf(phase / 2.0f);
+  const uint8_t level = static_cast<uint8_t>(s * s * 170.0f);
+  for (uint16_t i = 0; i < kLedCount; i++) gLeds.setPixelColor(i, gLeds.Color(0, level, level / 5));
+  gLeds.show();
+}
+
+/** Fire the pulse when the payload carries a star event we have not seen. */
+void checkForNewStars(const Stats& s) {
+  int64_t newest = gNewestSeenEvent;
+  bool star = false;
+  for (uint8_t i = 0; i < s.eventCount; i++) {
+    const EventStat& e = s.events[i];
+    if (e.at > gNewestSeenEvent && strcmp(e.kind, "star") == 0 && e.delta > 0) star = true;
+    if (e.at > newest) newest = e.at;
+  }
+  // First poll after boot only establishes the baseline -- otherwise every
+  // restart would replay the whole event backlog as "new".
+  const bool firstRun = gNewestSeenEvent == 0;
+  gNewestSeenEvent = newest;
+  if (star && !firstRun) {
+    Serial.println("[led] new star -> pulse");
+    pulseLeds();
+  }
+}
 ImprovSerial gImprov;
 Stats gStats{};
 
@@ -84,22 +135,42 @@ void initLvgl() {
 uint32_t gLastPoll = 0;
 bool gRegistered = false;
 
+/** Pump LVGL so the screen keeps updating while the network blocks. */
+void uiYield() { lv_timer_handler(); }
+
 bool bringUpNetwork(const String& ssid, const String& pass) {
   ui::showStatus("Connecting", ssid.c_str());
-  if (!api::connectWifi(ssid, pass)) return false;
+  lv_timer_handler();  // get that on the glass before we block
+
+  if (!api::connectWifi(ssid, pass)) {
+    ui::showStatus("Wi-Fi failed", "Could not join that network");
+    return false;
+  }
+  ui::showStatus("Syncing clock", "NTP");
+  lv_timer_handler();
+
   // Certificates are validated against the clock, so NTP must land first.
-  if (!api::syncClock()) return false;
+  if (!api::syncClock()) {
+    ui::showStatus("Clock failed", "NTP unreachable; TLS cannot verify");
+    return false;
+  }
+  ui::showStatus("Registering", settings::deviceId().c_str());
+  lv_timer_handler();
+
   gRegistered = api::registerDevice();
+  Serial.printf("[net] registered=%d\n", gRegistered ? 1 : 0);
   return true;
 }
 
 void pollNow() {
+  Serial.println("[net] polling...");
   const api::Result r = api::poll(gStats);
   if (r == api::Result::Updated) {
     backlight::set(gStats.brightness);
+    checkForNewStars(gStats);
     ui::setStats(gStats);
   } else if (r == api::Result::Failed && !gStats.valid) {
-    ui::showStatus("No data yet", "Waiting for the stats service");
+    ui::showStatus("No data yet", "Could not reach the stats service");
   }
 }
 
@@ -255,6 +326,12 @@ void setup() {
 
   initLvgl();
   ui::init(0xF74C00);
+  ui::showSplash();
+  // Pump LVGL so the splash is actually on the glass before Wi-Fi blocks.
+  for (uint32_t t = millis(); millis() - t < 900;) {
+    lv_timer_handler();
+    delay(5);
+  }
 
   pinMode(PIN_ENC_A, INPUT_PULLUP);
   pinMode(PIN_ENC_B, INPUT_PULLUP);
@@ -270,7 +347,8 @@ void setup() {
   return;
 #endif
 
-  gImprov.begin(Serial, "Rotary Stats", "rotary-stats", "0.1.0", "ESP32-S3");
+  api::setYield(uiYield);
+  gImprov.begin(Serial, "Rotary Stats", "rotary-stats", FW_VERSION, "ESP32-S3");
   gImprov.setNextUrl([]() { return settings::configUrl(); });
   gImprov.setConnectHandler([](const String& ssid, const String& pass) {
     if (!bringUpNetwork(ssid, pass)) {
@@ -287,7 +365,10 @@ void setup() {
     pollNow();
   } else {
     gImprov.setState(ImprovSerial::STATE_AUTHORIZED);
-    ui::showStatus("Plug me in", "Open the setup page on a computer to connect Wi-Fi");
+    String host = settings::baseUrl();
+    host.replace("https://", "");
+    host.replace("http://", "");
+    ui::showSetup(host.c_str());
   }
 }
 
@@ -309,6 +390,8 @@ void loop() {
     Serial.printf("[input] rotate %+ld\n", static_cast<long>(detents));
     ui::onRotate(detents > 0 ? 1 : -1);
   }
+
+  serviceLeds(millis());
 
   // Heartbeat + input echo, so the demo build can be diagnosed over serial
   // without being able to see the panel.

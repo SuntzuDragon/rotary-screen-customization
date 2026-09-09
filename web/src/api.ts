@@ -29,6 +29,11 @@ export function readSession(): Session | null {
   }
 }
 
+export function saveSession(s: Session): Session {
+  localStorage.setItem(LS, JSON.stringify(s));
+  return s;
+}
+
 export function clearSession() {
   localStorage.removeItem(LS);
 }

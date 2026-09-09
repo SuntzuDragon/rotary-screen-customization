@@ -127,7 +127,13 @@ function provisionView(conn: Connection) {
       if (next) {
         status.replaceChildren(note('Connected. Opening settings…', 'ok'));
         await conn.close();
-        location.href = next;
+        // The device's URL is same-origin and differs only in the hash, so
+        // assigning location.href is a same-document navigation: nothing
+        // reloads and the page sits on this message forever. Adopt the session
+        // and render the settings view directly instead.
+        const adopted = adoptSession(next);
+        if (adopted) void configView(adopted);
+        else location.href = next;
       } else {
         status.replaceChildren(
           note('Wi-Fi connected, but the device sent no settings URL.', 'err'),
@@ -424,6 +430,24 @@ async function configView(session: api.Session) {
 }
 
 /* --------------------------------- boot --------------------------------- */
+
+/**
+ * Take the device id + secret out of the URL Improv handed back. Returns null
+ * for anything that is not one of our own settings URLs.
+ */
+function adoptSession(next: string): api.Session | null {
+  try {
+    const url = new URL(next, location.href);
+    if (url.origin !== location.origin) return null;
+    const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const id = params.get('d');
+    const key = params.get('k');
+    if (!id || !key) return null;
+    return api.saveSession({ id, key });
+  } catch {
+    return null;
+  }
+}
 
 const session = api.readSession();
 if (session) void configView(session);

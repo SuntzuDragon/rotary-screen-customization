@@ -8,6 +8,10 @@ namespace ui {
 enum Deck : uint8_t { DeckSummary = 0, DeckRepos, DeckActivity, DeckCount };
 
 void init(uint32_t accent);
+/** Brief wordmark shown while the network comes up. */
+void showSplash();
+/** Big centred hostname for the unprovisioned state. */
+void showSetup(const char* host);
 /** Full-screen message used for boot, provisioning and error states. */
 void showStatus(const char* title, const char* detail);
 void setStats(const Stats& s);

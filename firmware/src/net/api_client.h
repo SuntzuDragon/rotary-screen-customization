@@ -6,6 +6,14 @@ namespace api {
 enum class Result { Updated, Unchanged, Failed };
 
 /**
+ * Called repeatedly while waiting on the network. Wi-Fi association, NTP and
+ * TLS together block for many seconds; without pumping LVGL from here the panel
+ * keeps showing whatever was last flushed, which looks like a hang.
+ */
+using YieldFn = void (*)();
+void setYield(YieldFn fn);
+
+/**
  * NTP. Must succeed before the first HTTPS request: certificate validity is
  * checked against the system clock, and a device that thinks it is 1970 fails
  * every TLS handshake.

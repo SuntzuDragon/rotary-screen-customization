@@ -51,8 +51,8 @@ void begin() {
 const String& deviceId() { return gId; }
 const String& deviceSecret() { return gSecret; }
 
-String ssid() { return prefs.getString("ssid", ""); }
-String password() { return prefs.getString("pass", ""); }
+String ssid() { return prefs.isKey("ssid") ? prefs.getString("ssid", "") : String(); }
+String password() { return prefs.isKey("pass") ? prefs.getString("pass", "") : String(); }
 bool hasWifi() { return ssid().length() > 0; }
 
 void saveWifi(const String& s, const String& p) {
@@ -65,7 +65,9 @@ void clearWifi() {
   prefs.remove("pass");
 }
 
-String baseUrl() { return prefs.getString("base", DEFAULT_BASE_URL); }
+String baseUrl() {
+  return prefs.isKey("base") ? prefs.getString("base", DEFAULT_BASE_URL) : String(DEFAULT_BASE_URL);
+}
 void setBaseUrl(const String& url) { prefs.putString("base", url); }
 
 String configUrl() { return baseUrl() + "/#d=" + gId + "&k=" + gSecret; }

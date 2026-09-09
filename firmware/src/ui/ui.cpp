@@ -349,6 +349,59 @@ void init(uint32_t accent) {
   resetRoot();
 }
 
+void showSplash() {
+  resetRoot();
+  lv_obj_t* star = lv_img_create(gRoot);
+  lv_img_set_src(star, &kStarImg);
+  lv_obj_set_style_img_recolor(star, gAccent, 0);
+  lv_obj_set_style_img_recolor_opa(star, LV_OPA_COVER, 0);
+  lv_obj_align(star, LV_ALIGN_CENTER, 0, -34);
+
+  label(gRoot, "ROTARY STATS", &lv_font_montserrat_20, lv_color_white(), 4);
+  label(gRoot, FW_VERSION, &lv_font_montserrat_12, lv_color_hex(0x76818E), 30);
+
+  // A quiet ring so the splash reads as deliberate rather than a half-drawn UI.
+  lv_obj_t* ring = lv_arc_create(gRoot);
+  lv_obj_set_size(ring, kSize - 16, kSize - 16);
+  lv_obj_center(ring);
+  lv_arc_set_rotation(ring, 270);
+  lv_arc_set_bg_angles(ring, 0, 360);
+  lv_arc_set_value(ring, 100);
+  lv_obj_remove_style(ring, nullptr, LV_PART_KNOB);
+  lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_arc_width(ring, 3, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(ring, 3, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(ring, lv_color_hex(0x1E242B), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(ring, gAccent, LV_PART_INDICATOR);
+}
+
+/**
+ * Unprovisioned state. The hostname is the one thing the user has to type, so
+ * it gets the largest type on the screen rather than being buried in a
+ * sentence.
+ */
+void showSetup(const char* host) {
+  resetRoot();
+  label(gRoot, "SET ME UP", &lv_font_montserrat_12, gAccent, -62);
+
+  lv_obj_t* url = lv_label_create(gRoot);
+  lv_label_set_text(url, host);
+  lv_label_set_long_mode(url, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(url, 200);
+  lv_obj_set_style_text_align(url, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(url, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_color(url, lv_color_white(), 0);
+  lv_obj_align(url, LV_ALIGN_CENTER, 0, -22);
+
+  lv_obj_t* d = lv_label_create(gRoot);
+  lv_label_set_text(d, "Open on a computer,\nthen Connect device over USB");
+  lv_obj_set_width(d, 190);
+  lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(d, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(d, lv_color_hex(0x8B97A5), 0);
+  lv_obj_align(d, LV_ALIGN_CENTER, 0, 34);
+}
+
 void showStatus(const char* title, const char* detail) {
   resetRoot();
   label(gRoot, title, &lv_font_montserrat_16, lv_color_white(), -12);
