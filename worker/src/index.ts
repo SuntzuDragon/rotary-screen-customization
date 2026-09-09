@@ -9,6 +9,7 @@ import {
   getDeviceLog,
   getStatus,
   putStatus,
+  snapshotScope,
   ensureConfig,
   getAuth,
   getConfig,
@@ -45,13 +46,20 @@ async function authorised(env: Env, id: string, req: Request): Promise<boolean> 
 }
 
 /** Refresh one login and fold the diff into its event ring. */
-export async function refreshLogin(env: Env, login: string, token: string): Promise<void> {
-  const prev = await getSnapshot(env, login);
+export async function refreshLogin(
+  env: Env,
+  login: string,
+  token: string,
+  /** Device whose personal token was used, if any -- see snapshotScope. */
+  privateForDevice: string | null = null,
+): Promise<void> {
+  const scope = snapshotScope(login, privateForDevice);
+  const prev = await getSnapshot(env, scope);
   const next = await buildSnapshot(token, login);
   const fresh = diffSnapshots(prev, next);
   if (fresh.length) {
-    const ring = await getEvents(env, login);
-    await putEvents(env, login, [...fresh, ...ring]);
+    const ring = await getEvents(env, scope);
+    await putEvents(env, scope, [...fresh, ...ring]);
   }
 
   // Only persist when something actually changed. fetchedAt moves every run, so
@@ -59,23 +67,26 @@ export async function refreshLogin(env: Env, login: string, token: string): Prom
   const sameContent =
     prev !== null &&
     JSON.stringify({ ...prev, fetchedAt: 0 }) === JSON.stringify({ ...next, fetchedAt: 0 });
-  if (!sameContent) await putSnapshot(env, login, next);
+  if (!sameContent) await putSnapshot(env, scope, next);
 }
 
-async function tokenFor(env: Env, id: string): Promise<string> {
+/** The token to use for a device, and whether it belongs to that device. */
+async function tokenFor(env: Env, id: string): Promise<{ token: string; personal: boolean }> {
   const stored = await getUserToken(env, id);
   if (stored) {
     const pat = await decryptSecret(env.ENC_KEY, stored);
-    if (pat) return pat;
+    if (pat) return { token: pat, personal: true };
   }
-  return env.GH_TOKEN;
+  return { token: env.GH_TOKEN, personal: false };
 }
 
 async function payloadFor(env: Env, id: string) {
   const config = await ensureConfig(env, id);
-  const snap = await getSnapshot(env, config.login);
+  const { personal } = await tokenFor(env, id);
+  const scope = snapshotScope(config.login, personal ? id : null);
+  const snap = await getSnapshot(env, scope);
   if (!snap) return { config, payload: null };
-  const events = await getEvents(env, config.login);
+  const events = await getEvents(env, scope);
   return { config, payload: buildPayload(config, snap, events) };
 }
 
@@ -262,7 +273,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
     // Warm the cache immediately so the first poll has data to show.
     if (!(await getSnapshot(env, config.login))) {
-      ctx.waitUntil(refreshLogin(env, config.login, await tokenFor(env, id)).catch(() => {}));
+      const { token, personal } = await tokenFor(env, id);
+      ctx.waitUntil(
+        refreshLogin(env, config.login, token, personal ? id : null).catch(() => {}),
+      );
     }
     return json({ ok: true, id });
   }
@@ -361,8 +375,13 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       if (typeof next === 'string') return fail(400, next);
       await putConfig(env, id, next);
       // A changed login has no cached snapshot yet -- fetch it now.
-      if (next.login !== current.login && !(await getSnapshot(env, next.login))) {
-        ctx.waitUntil(refreshLogin(env, next.login, await tokenFor(env, id)).catch(() => {}));
+      // A changed username has no cached snapshot yet -- fetch it now.
+      const { token, personal } = await tokenFor(env, id);
+      const scope = snapshotScope(next.login, personal ? id : null);
+      if (next.login !== current.login && !(await getSnapshot(env, scope))) {
+        ctx.waitUntil(
+          refreshLogin(env, next.login, token, personal ? id : null).catch(() => {}),
+        );
       }
       return json(next, { headers: { 'access-control-allow-origin': '*' } });
     }
@@ -400,7 +419,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token));
       // Re-fetch straight away so the display reflects the new access.
       const config = await ensureConfig(env, id);
-      ctx.waitUntil(refreshLogin(env, config.login, body.token).catch(() => {}));
+      ctx.waitUntil(refreshLogin(env, config.login, body.token, id).catch(() => {}));
       return json({ ok: true, login }, { headers: { 'access-control-allow-origin': '*' } });
     }
     if (req.method === 'DELETE') {
@@ -411,7 +430,8 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
   if (resource === 'refresh' && req.method === 'POST') {
     const config = await ensureConfig(env, id);
-    await refreshLogin(env, config.login, await tokenFor(env, id));
+    const { token, personal } = await tokenFor(env, id);
+    await refreshLogin(env, config.login, token, personal ? id : null);
     return json({ ok: true }, { headers: { 'access-control-allow-origin': '*' } });
   }
 
@@ -440,20 +460,28 @@ export default {
     ctx.waitUntil(
       (async () => {
         const ids = await listDeviceIds(env);
-        const byLogin = new Map<string, string>(); // login -> token to use
+
+        // Group by cache scope, not by login: devices using the shared token
+        // pool into one refresh per username, while a device with its own PAT
+        // gets its own, so private repositories never land in a shared cache.
+        const jobs = new Map<string, { login: string; token: string; device: string | null }>();
         for (const id of ids) {
           const config = await getConfig(env, id);
           if (!config) continue;
-          if (!byLogin.has(config.login)) byLogin.set(config.login, await tokenFor(env, id));
+          const { token, personal } = await tokenFor(env, id);
+          const device = personal ? id : null;
+          const key = snapshotScope(config.login, device);
+          if (!jobs.has(key)) jobs.set(key, { login: config.login, token, device });
         }
-        for (const [login, token] of byLogin) {
+
+        for (const [key, job] of jobs) {
           try {
-            await refreshLogin(env, login, token);
+            await refreshLogin(env, job.login, job.token, job.device);
           } catch (err) {
-            console.error(`refresh failed for ${login}`, err);
+            console.error(`refresh failed for ${key}`, err);
           }
         }
-        console.log(`refreshed ${byLogin.size} login(s); rate remaining=${lastRateRemaining}`);
+        console.log(`refreshed ${jobs.size} scope(s); rate remaining=${lastRateRemaining}`);
       })(),
     );
   },

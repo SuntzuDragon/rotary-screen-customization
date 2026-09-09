@@ -144,9 +144,22 @@ export async function putStatus(env: Env, id: string, st: DeviceStatus) {
 
 /* ---------- snapshots and events ---------- */
 
+/**
+ * Cache scope for a login's snapshot.
+ *
+ * Public data fetched with the shared token is cached per login, so several
+ * devices watching the same account cost one set of API calls. Data fetched
+ * with somebody's *own* token is not shareable -- it can include their private
+ * repositories -- so it is cached per device instead. Without this split, one
+ * user adding a PAT would publish their private repos to every other device
+ * watching the same username.
+ */
+export const snapshotScope = (login: string, privateForDevice: string | null) =>
+  privateForDevice ? `${login.toLowerCase()}#${privateForDevice}` : login.toLowerCase();
+
 /** Reads fall back to the old KV keys once, so nothing is lost in the move. */
-export async function getSnapshot(env: Env, login: string): Promise<Snapshot | null> {
-  const key = login.toLowerCase();
+export async function getSnapshot(env: Env, scope: string): Promise<Snapshot | null> {
+  const key = scope.toLowerCase();
   const r = await env.DB.prepare('SELECT data FROM snapshots WHERE login = ?')
     .bind(key)
     .first<{ data: string }>();
@@ -157,23 +170,23 @@ export async function getSnapshot(env: Env, login: string): Promise<Snapshot | n
       return null;
     }
   }
-  const legacy = await getJSON<Snapshot>(env, snapKey(login));
-  if (legacy) await putSnapshot(env, login, legacy);
+  const legacy = await getJSON<Snapshot>(env, snapKey(key));
+  if (legacy) await putSnapshot(env, key, legacy);
   return legacy;
 }
 
-export async function putSnapshot(env: Env, login: string, s: Snapshot) {
+export async function putSnapshot(env: Env, scope: string, s: Snapshot) {
   await env.DB.prepare(
     `INSERT INTO snapshots (login, fetched_at, data) VALUES (?, ?, ?)
      ON CONFLICT(login) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data`,
   )
-    .bind(login.toLowerCase(), s.fetchedAt, JSON.stringify(s))
+    .bind(scope.toLowerCase(), s.fetchedAt, JSON.stringify(s))
     .run();
 }
 
-export async function getEvents(env: Env, login: string): Promise<DerivedEvent[]> {
+export async function getEvents(env: Env, scope: string): Promise<DerivedEvent[]> {
   const r = await env.DB.prepare('SELECT data FROM events WHERE login = ?')
-    .bind(login.toLowerCase())
+    .bind(scope.toLowerCase())
     .first<{ data: string }>();
   if (r) {
     try {
@@ -182,16 +195,16 @@ export async function getEvents(env: Env, login: string): Promise<DerivedEvent[]
       return [];
     }
   }
-  return (await getJSON<DerivedEvent[]>(env, evKey(login))) ?? [];
+  return (await getJSON<DerivedEvent[]>(env, evKey(scope))) ?? [];
 }
 
 /** Keep a bounded ring of synthesised events -- the device renders a handful. */
-export async function putEvents(env: Env, login: string, ev: DerivedEvent[]) {
+export async function putEvents(env: Env, scope: string, ev: DerivedEvent[]) {
   await env.DB.prepare(
     `INSERT INTO events (login, data) VALUES (?, ?)
      ON CONFLICT(login) DO UPDATE SET data = excluded.data`,
   )
-    .bind(login.toLowerCase(), JSON.stringify(ev.slice(0, 25)))
+    .bind(scope.toLowerCase(), JSON.stringify(ev.slice(0, 25)))
     .run();
 }
 

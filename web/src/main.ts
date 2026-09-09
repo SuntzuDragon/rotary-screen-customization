@@ -574,6 +574,20 @@ async function configView(session: api.Session) {
     deckList.append(el('label', { class: 'row' }, cb, el('span', {}, DECK_LABEL[id])));
   }
 
+  /* whose GitHub to show */
+  const loginInput = el('input', {
+    class: 'input',
+    placeholder: 'github username',
+    autocomplete: 'off',
+  }) as HTMLInputElement;
+  loginInput.value = draft.login;
+  loginInput.oninput = () => {
+    const v = loginInput.value.trim();
+    // Changing account invalidates the repo selection: the names belong to the
+    // previous user. null means "all repos", which is the right default here.
+    if (/^[\w-]{1,39}$/.test(v)) edit({ login: v, repos: null });
+  };
+
   /* repo picker */
   const repoList = el('div', { class: 'rows' }, note('Loading repos…'));
   api
@@ -733,6 +747,18 @@ async function configView(session: api.Session) {
         { class: 'stack' },
         el('section', { class: 'card' }, pushBtn, pushNote),
         el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
+        el(
+          'section',
+          { class: 'card' },
+          el('h2', {}, 'GitHub account'),
+          el(
+            'p',
+            { class: 'muted' },
+            'Whose stats this dial shows. Each device has its own settings, so ' +
+              'changing this affects only this device.',
+          ),
+          loginInput,
+        ),
         el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
         el(
           'section',
