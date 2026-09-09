@@ -142,20 +142,58 @@ export async function putStatus(env: Env, id: string, st: DeviceStatus) {
     .run();
 }
 
-/* ---------- snapshots and events stay in KV ---------- */
+/* ---------- snapshots and events ---------- */
 
-export const getSnapshot = (env: Env, login: string) => getJSON<Snapshot>(env, snapKey(login));
+/** Reads fall back to the old KV keys once, so nothing is lost in the move. */
+export async function getSnapshot(env: Env, login: string): Promise<Snapshot | null> {
+  const key = login.toLowerCase();
+  const r = await env.DB.prepare('SELECT data FROM snapshots WHERE login = ?')
+    .bind(key)
+    .first<{ data: string }>();
+  if (r) {
+    try {
+      return JSON.parse(r.data) as Snapshot;
+    } catch {
+      return null;
+    }
+  }
+  const legacy = await getJSON<Snapshot>(env, snapKey(login));
+  if (legacy) await putSnapshot(env, login, legacy);
+  return legacy;
+}
+
+export async function putSnapshot(env: Env, login: string, s: Snapshot) {
+  await env.DB.prepare(
+    `INSERT INTO snapshots (login, fetched_at, data) VALUES (?, ?, ?)
+     ON CONFLICT(login) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data`,
+  )
+    .bind(login.toLowerCase(), s.fetchedAt, JSON.stringify(s))
+    .run();
+}
 
 export async function getEvents(env: Env, login: string): Promise<DerivedEvent[]> {
+  const r = await env.DB.prepare('SELECT data FROM events WHERE login = ?')
+    .bind(login.toLowerCase())
+    .first<{ data: string }>();
+  if (r) {
+    try {
+      return JSON.parse(r.data) as DerivedEvent[];
+    } catch {
+      return [];
+    }
+  }
   return (await getJSON<DerivedEvent[]>(env, evKey(login))) ?? [];
 }
 
-export const putSnapshot = (env: Env, login: string, s: Snapshot) =>
-  env.DEVICES.put(snapKey(login), JSON.stringify(s));
-
 /** Keep a bounded ring of synthesised events -- the device renders a handful. */
-export const putEvents = (env: Env, login: string, ev: DerivedEvent[]) =>
-  env.DEVICES.put(evKey(login), JSON.stringify(ev.slice(0, 25)));
+export async function putEvents(env: Env, login: string, ev: DerivedEvent[]) {
+  await env.DB.prepare(
+    `INSERT INTO events (login, data) VALUES (?, ?)
+     ON CONFLICT(login) DO UPDATE SET data = excluded.data`,
+  )
+    .bind(login.toLowerCase(), JSON.stringify(ev.slice(0, 25)))
+    .run();
+}
 
 /* ---------- user tokens ---------- */
 
@@ -212,38 +250,74 @@ export async function putDeviceLog(env: Env, id: string, lines: string[]) {
 
 /* ---------- firmware ---------- */
 
-// Merged images live in KV rather than R2: ~1.4MB each against a 25MB
-// per-value limit, and it keeps the whole deploy to a single binding. Each
-// published version is kept so the settings page can offer a choice, including
-// rolling back.
-const FW_INDEX = 'fw:index';
+/*
+ * Firmware: metadata in D1, images in KV.
+ *
+ * The index moved so a published release shows up in the dropdown at once
+ * rather than after KV's read lag. The images stayed: they are ~1.4MB blobs
+ * read a handful of times, which is a shape KV handles well and a SQL row does
+ * not. R2 would be tidier still, but it has to be switched on in the dashboard
+ * and that flow asks for a card even for the free tier -- not worth it for
+ * 14MB.
+ *
+ * Ordering matters when publishing: write the image, confirm it is readable,
+ * then insert the row. The index is the source of truth, so a version can never
+ * be advertised before its image can actually be downloaded.
+ */
 const fwBinKey = (version: string) => `fw:bin:${version}`;
 
 export const MAX_FIRMWARE_VERSIONS = 10;
 
-export const getFirmwareIndex = (env: Env) => getJSON<FirmwareIndex>(env, FW_INDEX);
-
 export const getFirmwareBin = (env: Env, version: string) =>
   env.DEVICES.get(fwBinKey(version), 'arrayBuffer');
 
-/**
- * Store a build and make it the latest. Older builds are pruned beyond
- * MAX_FIRMWARE_VERSIONS so KV cannot grow without bound; a re-published version
- * replaces the existing entry rather than duplicating it.
- */
+export async function getFirmwareIndex(env: Env): Promise<FirmwareIndex | null> {
+  const rows = await env.DB.prepare(
+    'SELECT version, sha256, size, source, uploaded_at FROM firmware ORDER BY uploaded_at DESC',
+  ).all<{ version: string; sha256: string; size: number; source: string; uploaded_at: number }>();
+
+  const versions = (rows.results ?? []).map((r) => ({
+    version: r.version,
+    sha256: r.sha256,
+    size: r.size,
+    source: r.source as 'ci' | 'upload',
+    uploadedAt: r.uploaded_at,
+  }));
+  if (versions.length === 0) return null;
+
+  const latest = await env.DB.prepare("SELECT value FROM meta WHERE key = 'fw_latest'")
+    .first<{ value: string }>();
+  return { latest: latest?.value ?? versions[0]!.version, versions };
+}
+
+/** Store an image and make it the latest, pruning beyond MAX_FIRMWARE_VERSIONS. */
 export async function publishFirmware(env: Env, meta: FirmwareMeta, bin: ArrayBuffer) {
   await env.DEVICES.put(fwBinKey(meta.version), bin);
 
-  const index = (await getFirmwareIndex(env)) ?? { latest: meta.version, versions: [] };
-  const versions = [meta, ...index.versions.filter((v) => v.version !== meta.version)];
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO firmware (version, sha256, size, source, uploaded_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(version) DO UPDATE SET sha256 = excluded.sha256, size = excluded.size,
+                                          source = excluded.source,
+                                          uploaded_at = excluded.uploaded_at`,
+    ).bind(meta.version, meta.sha256, meta.size, meta.source, meta.uploadedAt),
+    env.DB.prepare(
+      `INSERT INTO meta (key, value) VALUES ('fw_latest', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).bind(meta.version),
+  ]);
 
-  for (const stale of versions.slice(MAX_FIRMWARE_VERSIONS)) {
-    await env.DEVICES.delete(fwBinKey(stale.version));
+  // Prune old builds so KV storage cannot grow without bound.
+  const stale = await env.DB.prepare(
+    'SELECT version FROM firmware ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?',
+  )
+    .bind(MAX_FIRMWARE_VERSIONS)
+    .all<{ version: string }>();
+  for (const r of stale.results ?? []) {
+    await env.DEVICES.delete(fwBinKey(r.version));
+    await env.DB.prepare('DELETE FROM firmware WHERE version = ?').bind(r.version).run();
   }
-  await env.DEVICES.put(
-    FW_INDEX,
-    JSON.stringify({ latest: meta.version, versions: versions.slice(0, MAX_FIRMWARE_VERSIONS) }),
-  );
 }
 
 /** Device ids known to the cron job. A SELECT, where KV needed a rate-limited list. */

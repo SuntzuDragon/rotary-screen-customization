@@ -103,10 +103,10 @@ jobs:
             0x10000 firmware.bin
           ls -l merged.bin
 
-      # Images are keyed by version and listed in fw:index, so the settings page
-      # can offer every published build (and roll back to one). The index is a
-      # read-modify-write here rather than a Worker endpoint, which keeps CI on
-      # the CLOUDFLARE_API_TOKEN that already exists -- no extra secret.
+      # The image goes to KV (a 1.4MB blob is the wrong shape for a SQL row);
+      # its metadata goes to D1, which is the index of record. Order matters:
+      # write the blob first, so a version can never be advertised in the
+      # dropdown before it can actually be downloaded.
       - name: Publish to the Worker
         if: steps.gate.outputs.publish == 'true'
         working-directory: worker
@@ -118,26 +118,21 @@ jobs:
           BIN=../firmware/.pio/build/crowpanel128/merged.bin
           SHA=$(sha256sum "$BIN" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$BIN")
+          NOW=$(date +%s)
           npm ci
 
           npx wrangler kv key put "fw:bin:$VERSION" --binding DEVICES --remote --path "$BIN"
 
-          npx wrangler kv key get fw:index --binding DEVICES --remote > old-index.json 2>/dev/null \
-            || echo '{"latest":"","versions":[]}' > old-index.json
-          [ -s old-index.json ] || echo '{"latest":"","versions":[]}' > old-index.json
-
-          jq -n \
-            --arg v "$VERSION" --arg sha "$SHA" --argjson size "$SIZE" \
-            --argjson now "$(date +%s)" --slurpfile old old-index.json '
-              ($old[0] // {latest:"", versions:[]}) as $o
-              | {version:$v, sha256:$sha, size:$size, source:"ci", uploadedAt:$now} as $new
-              | {latest: $v,
-                 versions: ([$new] + [$o.versions[]? | select(.version != $v)])[0:10]}
-            ' > new-index.json
-
-          npx wrangler kv key put fw:index --binding DEVICES --remote --path new-index.json
+          npx wrangler d1 execute rotary-stats --remote --command "
+            INSERT INTO firmware (version, sha256, size, source, uploaded_at)
+            VALUES ('$VERSION', '$SHA', $SIZE, 'ci', $NOW)
+            ON CONFLICT(version) DO UPDATE SET sha256=excluded.sha256, size=excluded.size,
+                                               source=excluded.source,
+                                               uploaded_at=excluded.uploaded_at;
+            INSERT INTO meta (key, value) VALUES ('fw_latest', '$VERSION')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+          "
           echo "published $VERSION ($SIZE bytes, $SHA)"
-          jq -r '.versions[] | "  kept \(.version)"' new-index.json
 
       - uses: actions/upload-artifact@v7
         if: steps.gate.outputs.publish == 'true'
