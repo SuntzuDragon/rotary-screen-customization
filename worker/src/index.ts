@@ -41,15 +41,6 @@ async function authorised(env: Env, id: string, req: Request): Promise<boolean> 
 export async function refreshLogin(env: Env, login: string, token: string): Promise<void> {
   const prev = await getSnapshot(env, login);
   const next = await buildSnapshot(token, login);
-
-  // Never let a transient 202 wipe a sparkline we already have.
-  if (prev) {
-    const old = new Map(prev.repos.map((r) => [r.name, r.weeks]));
-    for (const r of next.repos) {
-      if (!r.weeks) r.weeks = old.get(r.name) ?? null;
-    }
-  }
-
   const fresh = diffSnapshots(prev, next);
   if (fresh.length) {
     const ring = await getEvents(env, login);
@@ -220,12 +211,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     return json(
       {
         login: snap.login,
-        repos: snap.repos.map((r) => ({
-          name: r.name,
-          stars: r.stars,
-          lang: r.lang,
-          hasWeeks: r.weeks !== null,
-        })),
+        repos: snap.repos.map((r) => ({ name: r.name, stars: r.stars, lang: r.lang })),
       },
       { headers: { 'access-control-allow-origin': '*' } },
     );

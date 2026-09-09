@@ -5,7 +5,6 @@
 // a long-running device is far worse than a few wasted KB of PSRAM.
 static constexpr size_t kMaxRepos = 8;
 static constexpr size_t kMaxEvents = 6;
-static constexpr size_t kWeeks = 52;
 
 struct RepoStat {
   char name[40];
@@ -14,8 +13,6 @@ struct RepoStat {
   uint32_t langColor;   // 0xRRGGBB, 0 when unknown
   int32_t stars, forks, openPRs, openIssues;
   int64_t lastCommitAt; // epoch seconds, 0 = unknown
-  uint16_t weeks[kWeeks];
-  uint8_t weekCount;    // 0 while GitHub is still computing commit stats
 };
 
 struct EventStat {
@@ -39,7 +36,7 @@ struct Stats {
   uint32_t accent, bg;   // 0xRRGGBB
   uint8_t brightness;    // 5..100
   uint16_t rotSec;       // 0 = manual only
-  bool deckEnabled[4];   // summary, repos, spark, activity
+  bool deckEnabled[3];   // summary, repos, activity
 
   bool valid;
 };

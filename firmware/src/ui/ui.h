@@ -5,7 +5,7 @@
 
 namespace ui {
 
-enum Deck : uint8_t { DeckSummary = 0, DeckRepos, DeckSpark, DeckActivity, DeckCount };
+enum Deck : uint8_t { DeckSummary = 0, DeckRepos, DeckActivity, DeckCount };
 
 void init(uint32_t accent);
 /** Full-screen message used for boot, provisioning and error states. */

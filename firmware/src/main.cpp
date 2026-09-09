@@ -132,8 +132,6 @@ void loadDemoStats() {
     r.openPRs = prs[i];
     r.openIssues = issues[i];
     r.lastCommitAt = 1777000000;
-    r.weekCount = kWeeks;
-    for (uint8_t w = 0; w < kWeeks; w++) r.weeks[w] = (w > 30 && w < 36) ? (w * 3) % 57 : 0;
   }
   gStats.eventCount = 0;
   gStats.valid = true;

@@ -106,7 +106,6 @@ export async function fetchProfile(
       openIssues: r.issues.totalCount,
       lastCommitAt: epoch(commit?.committedDate),
       lastCommitMsg: commit?.messageHeadline ?? null,
-      weeks: null,
     };
   });
 
@@ -139,58 +138,13 @@ export async function fetchFeed(token: string, login: string, limit = 12): Promi
 }
 
 /**
- * 52 weekly commit totals, oldest first.
- *
- * Returns null when GitHub answers 202 -- it computes these stats lazily and
- * serves an empty body on a cold cache. That is a "try again next tick", not an
- * error, and it happens on the very first request for any repo.
+ * Full refresh for one login: a single GraphQL call plus the public event feed.
+ * Deliberately fetches every non-fork repo rather than only the configured
+ * subset, so one snapshot can serve several devices watching the same account;
+ * the per-device filter happens at payload build time instead.
  */
-export async function fetchCommitWeeks(
-  token: string,
-  owner: string,
-  repo: string,
-): Promise<number[] | null> {
-  const res = await fetch(`${API}/repos/${owner}/${repo}/stats/commit_activity`, {
-    headers: headers(token),
-  });
-  if (res.status === 202) return null;
-  if (!res.ok) return null;
-
-  const text = await res.text();
-  if (!text.trim()) return null; // 204 / empty repo
-
-  try {
-    const weeks = JSON.parse(text) as { total: number }[];
-    if (!Array.isArray(weeks) || weeks.length === 0) return null;
-    return weeks.map((w) => w.total | 0);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Full refresh for one login. Deliberately fetches every non-fork repo rather
- * than only the configured subset, so a single snapshot can serve several
- * devices watching the same account; the per-device filter happens at payload
- * build time instead.
- */
-export async function buildSnapshot(
-  token: string,
-  login: string,
-  weeksLimit = 12,
-): Promise<Snapshot> {
+export async function buildSnapshot(token: string, login: string): Promise<Snapshot> {
   const [profile, feed] = await Promise.all([fetchProfile(token, login), fetchFeed(token, login)]);
-
-  // commit_activity is one request per repo, so only pull it for the most
-  // starred repos -- those are the ones the spark deck actually shows.
-  const target = profile.repos.slice(0, weeksLimit);
-  const weeks = await Promise.all(
-    target.map((r) => fetchCommitWeeks(token, profile.login, r.name).catch(() => null)),
-  );
-  target.forEach((r, i) => {
-    r.weeks = weeks[i] ?? null;
-  });
-
   return { ...profile, feed, fetchedAt: Math.floor(Date.now() / 1000) };
 }
 

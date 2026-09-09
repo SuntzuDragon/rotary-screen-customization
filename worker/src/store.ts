@@ -1,5 +1,5 @@
 import type { DeviceConfig, DerivedEvent, Env, Snapshot } from './types';
-import { defaultConfig } from './types';
+import { ALL_DECKS, defaultConfig } from './types';
 
 const cfgKey = (id: string) => `dev:${id}:cfg`;
 const authKey = (id: string) => `dev:${id}:auth`;
@@ -42,7 +42,18 @@ export const putEvents = (env: Env, login: string, ev: DerivedEvent[]) =>
 
 export async function ensureConfig(env: Env, id: string): Promise<DeviceConfig> {
   const existing = await getConfig(env, id);
-  if (existing) return existing;
+  if (existing) {
+    // Migrate stored configs forward: a deck that no longer exists (the
+    // sparkline, say) would otherwise linger in KV and show up in the config
+    // UI as a screen the firmware cannot render.
+    const decks = existing.decks.filter((d) => (ALL_DECKS as string[]).includes(d));
+    if (decks.length !== existing.decks.length) {
+      const migrated = { ...existing, decks: decks.length ? decks : [...ALL_DECKS] };
+      await putConfig(env, id, migrated);
+      return migrated;
+    }
+    return existing;
+  }
   const fresh = defaultConfig(env.DEFAULT_LOGIN);
   await putConfig(env, id, fresh);
   return fresh;

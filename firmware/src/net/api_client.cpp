@@ -121,11 +121,11 @@ Result poll(Stats& out) {
   out.brightness = doc["theme"]["bright"] | 80;
   out.rotSec = doc["theme"]["rotSec"] | 8;
 
-  static const char* kDeckNames[4] = {"summary", "repos", "spark", "activity"};
-  for (int i = 0; i < 4; i++) out.deckEnabled[i] = false;
+  static const char* kDeckNames[3] = {"summary", "repos", "activity"};
+  for (int i = 0; i < 3; i++) out.deckEnabled[i] = false;
   for (JsonVariant d : doc["decks"].as<JsonArray>()) {
     const char* s = d.as<const char*>();
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
       if (s && strcmp(s, kDeckNames[i]) == 0) out.deckEnabled[i] = true;
     }
   }
@@ -143,12 +143,6 @@ Result poll(Stats& out) {
     d.openPRs = r["pr"] | 0;
     d.openIssues = r["i"] | 0;
     d.lastCommitAt = r["c"] | 0;
-
-    d.weekCount = 0;
-    for (JsonVariant w : r["w"].as<JsonArray>()) {
-      if (d.weekCount >= kWeeks) break;
-      d.weeks[d.weekCount++] = static_cast<uint16_t>(w.as<int>());
-    }
   }
 
   out.eventCount = 0;

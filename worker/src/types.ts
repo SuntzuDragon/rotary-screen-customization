@@ -6,9 +6,9 @@ export interface Env {
   DEFAULT_LOGIN: string;
 }
 
-export type DeckId = 'summary' | 'repos' | 'spark' | 'activity';
+export type DeckId = 'summary' | 'repos' | 'activity';
 
-export const ALL_DECKS: DeckId[] = ['summary', 'repos', 'spark', 'activity'];
+export const ALL_DECKS: DeckId[] = ['summary', 'repos', 'activity'];
 
 export interface Theme {
   accent: string;
@@ -56,8 +56,6 @@ export interface RepoSnapshot {
   /** Newest commit on the default branch. Not pushedAt -- see docs/research-findings.md */
   lastCommitAt: number | null;
   lastCommitMsg: string | null;
-  /** 52 weekly commit totals, oldest first. null while GitHub is still computing (HTTP 202). */
-  weeks: number[] | null;
 }
 
 export interface FeedEvent {
@@ -97,8 +95,6 @@ export interface PayloadRepo {
   /** epoch seconds of last default-branch commit */
   c: number | null;
   msg: string | null;
-  /** 52 weekly commit totals, or [] if not yet available */
-  w: number[];
 }
 
 export interface DevicePayload {

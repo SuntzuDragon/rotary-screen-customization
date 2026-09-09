@@ -82,7 +82,6 @@ export function buildPayload(
     col: r.langColor,
     c: r.lastCommitAt,
     msg: r.lastCommitMsg,
-    w: r.weeks ?? [],
   }));
 
   return {

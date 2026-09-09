@@ -29,7 +29,7 @@ struct Card {
   uint8_t index;
 };
 
-constexpr uint8_t kMaxCards = 2 + 2 * kMaxRepos;
+constexpr uint8_t kMaxCards = 2 + kMaxRepos;
 Card gCards[kMaxCards];
 uint8_t gCardCount = 0;
 uint8_t gCursor = 0;
@@ -207,24 +207,41 @@ void buildRepo(uint8_t idx) {
   }
   const RepoStat& r = gStats.repos[idx % gStats.repoCount];
 
-  lv_obj_t* title = lv_label_create(gRoot);
-  lv_label_set_text(title, r.name);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(title, 186);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(title, lv_color_white(), 0);
-  lv_obj_align(title, LV_ALIGN_CENTER, 5, -72);
+  // Title, with the language colour dot beside it in a centred flex row.
+  //
+  // The dot used to be aligned to the *label object*, which is a fixed-width
+  // box far wider than the text, so it landed outside the circle and got
+  // clipped. Measuring the text and letting flex size the row keeps the pair
+  // centred and inside the glass whatever the repo name length.
+  const lv_coord_t kTitleMax = 150;
+  lv_point_t textSize;
+  lv_txt_get_size(&textSize, r.name, &lv_font_montserrat_20, 0, 0, LV_COORD_MAX,
+                  LV_TEXT_FLAG_NONE);
+
+  lv_obj_t* row = lv_obj_create(gRoot);
+  lv_obj_remove_style_all(row);
+  lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, 6, 0);
+  lv_obj_align(row, LV_ALIGN_CENTER, 0, -72);
 
   if (r.langColor) {
-    lv_obj_t* dot = lv_obj_create(gRoot);
+    lv_obj_t* dot = lv_obj_create(row);
     lv_obj_remove_style_all(dot);
     lv_obj_set_size(dot, 8, 8);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(dot, rgb(r.langColor), 0);
-    lv_obj_align_to(dot, title, LV_ALIGN_OUT_LEFT_MID, -6, 0);
   }
+
+  lv_obj_t* title = lv_label_create(row);
+  lv_label_set_text(title, r.name);
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(title, LV_MIN(textSize.x + 2, kTitleMax));
+  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_color(title, lv_color_white(), 0);
 
   statCell(gRoot, -46, -22, r.stars, "STARS");
   statCell(gRoot, 46, -22, r.forks, "FORKS");
@@ -234,76 +251,6 @@ void buildRepo(uint8_t idx) {
   char ts[24];
   formatAgo(r.lastCommitAt, ts, sizeof(ts));
   label(gRoot, ts, &lv_font_montserrat_12, lv_color_hex(0x8B97A5), 76);
-}
-
-/**
- * 52 weekly commit totals as radial bars -- one revolution is one year.
- * Normalised per repo: peaks range from 18 to 228 across these repos, so a
- * shared scale would flatten most of them to nothing.
- */
-void buildSpark(uint8_t idx) {
-  if (gStats.repoCount == 0) return;
-  const RepoStat& r = gStats.repos[idx % gStats.repoCount];
-
-  const int16_t inner = kR - 40;
-  const int16_t outer = kR - 8;
-
-  if (r.weekCount == 0) {
-    label(gRoot, "no commit data", &lv_font_montserrat_16, lv_color_hex(0x8B97A5), 30);
-  } else {
-    uint16_t peak = 1;
-    for (uint8_t i = 0; i < r.weekCount; i++) peak = max(peak, r.weeks[i]);
-
-    // A canvas is the only sane way to draw 52 arbitrary-angle bars; 240x240 at
-    // 16bpp is ~113KB, which is nothing against 8MB of PSRAM.
-    static lv_color_t* buf = nullptr;
-    static bool tried = false;
-    if (!tried) {
-      tried = true;
-      buf = static_cast<lv_color_t*>(
-          heap_caps_malloc(kSize * kSize * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
-    }
-    if (buf) {
-      lv_obj_t* canvas = lv_canvas_create(gRoot);
-      lv_canvas_set_buffer(canvas, buf, kSize, kSize, LV_IMG_CF_TRUE_COLOR);
-      lv_obj_center(canvas);
-      lv_canvas_fill_bg(canvas, rgb(gStats.bg), LV_OPA_COVER);
-
-      lv_draw_line_dsc_t dsc;
-      lv_draw_line_dsc_init(&dsc);
-      dsc.round_start = 1;
-      dsc.round_end = 1;
-
-      const float step = kTau / r.weekCount;
-      for (uint8_t i = 0; i < r.weekCount; i++) {
-        const float a = kTop + i * step;
-        const bool zero = r.weeks[i] == 0;
-        const float len = zero ? 2.0f : 4.0f + (outer - inner - 4) * (static_cast<float>(r.weeks[i]) / peak);
-        dsc.color = zero ? lv_color_hex(0x2A313A) : gAccent;
-        dsc.width = zero ? 2 : 4;
-        lv_point_t pts[2] = {
-            {static_cast<lv_coord_t>(kR + cosf(a) * inner), static_cast<lv_coord_t>(kR + sinf(a) * inner)},
-            {static_cast<lv_coord_t>(kR + cosf(a) * (inner + len)),
-             static_cast<lv_coord_t>(kR + sinf(a) * (inner + len))},
-        };
-        lv_canvas_draw_line(canvas, pts, 2, &dsc);
-      }
-    }
-
-    char buf2[16];
-    snprintf(buf2, sizeof(buf2), "%u", static_cast<unsigned>(peak));
-    label(gRoot, buf2, &lv_font_montserrat_20, lv_color_hex(0xE0E6EC), 28);
-    label(gRoot, "PEAK WEEK", &lv_font_montserrat_12, gAccent, 48);
-  }
-
-  lv_obj_t* title = lv_label_create(gRoot);
-  lv_label_set_text(title, r.name);
-  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(title, 150);
-  lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(title, lv_color_white(), 0);
-  lv_obj_align(title, LV_ALIGN_CENTER, 0, -8);
 }
 
 void buildActivity() {
@@ -365,8 +312,6 @@ void rebuildCards() {
   if (deckOn(ui::DeckSummary)) add(ui::DeckSummary, 0);
   if (deckOn(ui::DeckRepos))
     for (uint8_t i = 0; i < gStats.repoCount; i++) add(ui::DeckRepos, i);
-  if (deckOn(ui::DeckSpark))
-    for (uint8_t i = 0; i < gStats.repoCount; i++) add(ui::DeckSpark, i);
   if (deckOn(ui::DeckActivity)) add(ui::DeckActivity, 0);
 
   if (gCardCount == 0) add(ui::DeckSummary, 0);  // never leave the screen empty
@@ -383,15 +328,12 @@ void redraw() {
   switch (card.deck) {
     case ui::DeckSummary: buildSummary(); break;
     case ui::DeckRepos: buildRepo(card.index); break;
-    case ui::DeckSpark: buildSpark(card.index); break;
     case ui::DeckActivity: buildActivity(); break;
     default: break;
   }
 
-  // One indicator for the whole list, so position is always global. Kept inside
-  // the sparkline's bar ring, which owns the bezel out to R-8.
-  const lv_coord_t radius = (card.deck == ui::DeckSpark) ? (kR - 40 - 14) : (kR - 9);
-  positionDots(gRoot, radius);
+  // Always the same radius: the dots must not move as you scroll.
+  positionDots(gRoot, kR - 9);
 }
 
 }  // namespace

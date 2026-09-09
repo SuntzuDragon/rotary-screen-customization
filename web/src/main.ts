@@ -1,12 +1,11 @@
 import * as api from './api';
 import { connect, provision, serialSupported, type Connection, type Ssid } from './improv';
-import { SIZE, deckLength, render, type ViewState } from './render';
+import { SIZE, buildCards, nextSection, render, type Card } from './render';
 import type { DeckId, DeviceConfig, DevicePayload } from './types';
 
 const DECK_LABEL: Record<DeckId, string> = {
   summary: 'Summary dial',
   repos: 'Repo cards',
-  spark: 'Commit sparkline',
   activity: 'Activity ticker',
 };
 
@@ -162,32 +161,30 @@ function previewPanel(getPayload: () => DevicePayload | null) {
   const canvas = el('canvas', { class: 'screen', width: String(SIZE), height: String(SIZE) });
   const ctx = canvas.getContext('2d')!;
   const caption = el('p', { class: 'muted center' }, '');
-  let state: ViewState = { deck: 'summary', index: 0 };
+  let cards: Card[] = [];
+  let cursor = 0;
 
   const draw = () => {
     const p = getPayload();
     if (!p) return;
-    if (!p.decks.includes(state.deck)) state.deck = p.decks[0] ?? 'summary';
-    state.index = Math.min(state.index, deckLength(p, state.deck) - 1);
-    render(ctx, p, state);
-    caption.textContent = `${DECK_LABEL[state.deck]} — scroll to turn the knob, click to press it`;
+    cards = buildCards(p);
+    if (cursor >= cards.length) cursor = 0;
+    render(ctx, p, cards, cursor);
+    const deck = cards[cursor]?.deck ?? 'summary';
+    caption.textContent = `${DECK_LABEL[deck]} — scroll to turn the knob, click to press it`;
   };
 
-  // Mirror the real input model: rotate moves within a deck, press changes deck.
+  // Mirrors the device exactly: turning scrolls one flat list end to end, and
+  // pressing jumps to the head of the next section. There is no touch input.
   canvas.onwheel = (e) => {
     e.preventDefault();
-    const p = getPayload();
-    if (!p) return;
-    const len = deckLength(p, state.deck);
-    state.index = (state.index + (e.deltaY > 0 ? 1 : -1) + len) % len;
+    if (cards.length === 0) return;
+    cursor = (cursor + (e.deltaY > 0 ? 1 : -1) + cards.length) % cards.length;
     draw();
   };
   canvas.onclick = () => {
-    const p = getPayload();
-    if (!p) return;
-    const i = p.decks.indexOf(state.deck);
-    state.deck = p.decks[(i + 1) % p.decks.length]!;
-    state.index = 0;
+    if (cards.length === 0) return;
+    cursor = nextSection(cards, cursor);
     draw();
   };
 

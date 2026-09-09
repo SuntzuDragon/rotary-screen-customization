@@ -6,7 +6,7 @@ export interface Theme {
   rotSec: number;
 }
 
-export type DeckId = 'summary' | 'repos' | 'spark' | 'activity';
+export type DeckId = 'summary' | 'repos' | 'activity';
 
 export interface PayloadRepo {
   n: string;
@@ -18,7 +18,6 @@ export interface PayloadRepo {
   col: string | null;
   c: number | null;
   msg: string | null;
-  w: number[];
 }
 
 export interface DevicePayload {
