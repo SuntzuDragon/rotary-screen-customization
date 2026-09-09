@@ -119,3 +119,5 @@ esp-web-install-button { display: block; }
 }
 
 .foot { font-size: 12px; margin-top: 4px; opacity: 0.75; }
+
+.savebar { margin-top: 10px; min-height: 18px; }

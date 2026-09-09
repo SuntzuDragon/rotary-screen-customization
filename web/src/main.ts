@@ -477,10 +477,55 @@ async function configView(session: api.Session) {
   payload = await api.getPreview(session).catch(() => null);
   const preview = previewPanel(() => payload);
 
+  const saveNote = el('div', { class: 'status savebar' });
+
+  /**
+   * Save, then confirm the change has actually reached the device's payload.
+   *
+   * A checkbox used to appear to do nothing: the write lands immediately, but
+   * KV reads lag by 15-30s and the device polls on top of that, so the dial
+   * could take over a minute to catch up with no feedback at all. Poll the
+   * payload until it agrees, so the UI can say "saved", then "live".
+   */
   const save = async (patch: Partial<DeviceConfig>) => {
-    config = await api.putConfig(session, patch);
-    payload = await api.getPreview(session).catch(() => payload);
-    preview.draw();
+    saveNote.replaceChildren(note('Saving…'));
+    try {
+      config = await api.putConfig(session, patch);
+    } catch (err) {
+      saveNote.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+      return;
+    }
+    saveNote.replaceChildren(note('Saved — waiting for the dial to pick it up…'));
+
+    const matches = (p: DevicePayload | null) =>
+      p !== null &&
+      p.decks.join() === config.decks.join() &&
+      p.theme.accent === config.theme.accent &&
+      p.theme.bright === config.theme.bright &&
+      p.theme.rotSec === config.theme.rotSec &&
+      (config.repos === null || p.repos.map((r) => r.n).join() === config.repos.join());
+
+    const deadline = Date.now() + 90000;
+    for (;;) {
+      const fresh = await api.getPreview(session).catch(() => null);
+      if (fresh) {
+        payload = fresh;
+        preview.draw();
+      }
+      if (matches(fresh)) {
+        saveNote.replaceChildren(
+          note('Live — the dial will show this within about half a minute.', 'ok'),
+        );
+        return;
+      }
+      if (Date.now() > deadline) {
+        saveNote.replaceChildren(
+          note('Saved, but the service has not picked it up yet. It should catch up shortly.'),
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   };
 
   /* deck toggles */
@@ -658,7 +703,7 @@ async function configView(session: api.Session) {
       el(
         'div',
         { class: 'stack' },
-        el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
+        el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList, saveNote),
         el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
         el(
           'section',
