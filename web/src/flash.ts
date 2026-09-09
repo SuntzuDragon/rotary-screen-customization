@@ -1,4 +1,4 @@
-import { ESPLoader, Transport, UsbJtagSerialReset } from 'esptool-js';
+import { ESPLoader, Transport } from 'esptool-js';
 
 export interface FlashHooks {
   log: (line: string) => void;
@@ -91,18 +91,19 @@ export async function flashFirmware(
 
     hooks.log('write complete, resetting\n');
 
-    // This board talks over the ESP32-S3's built-in USB-Serial/JTAG peripheral,
-    // which needs its own reset sequence. esptool-js's default hard reset
-    // toggles RTS the way an external USB-UART bridge expects; on this chip the
-    // write succeeds, the log says "hard resetting", and the device simply
-    // never starts -- a dead board with a clean flash log.
-    try {
-      await new UsbJtagSerialReset(transport).reset();
-      hooks.log('reset via USB-JTAG sequence\n');
-    } catch (err) {
-      hooks.log(`USB-JTAG reset failed (${err}); falling back\n`);
-      await loader.after().catch(() => {});
-    }
+    // Explicit reset, in this exact order.
+    //
+    // DTR drives IO0 (BOOT) and RTS drives EN. After flashing, the stub leaves
+    // BOOT asserted; if it is still low when EN is released the chip reboots
+    // straight back into *download mode* rather than running the app -- which
+    // presents as a completely dead board with a flawless flash log. Releasing
+    // BOOT first, then pulsing EN, is the sequence that reliably revives it
+    // (it is what the bench reset script does, every time).
+    await transport.setDTR(false); // BOOT high -> boot the application
+    await transport.setRTS(true); // EN low  -> hold in reset
+    await new Promise((r) => setTimeout(r, 120));
+    await transport.setRTS(false); // EN high -> run
+    hooks.log('reset: BOOT released, EN pulsed — device should boot now\n');
   } finally {
     // Always hand the port back, or the next attempt cannot open it.
     await transport.disconnect().catch(() => {});
