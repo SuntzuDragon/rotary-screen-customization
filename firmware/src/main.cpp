@@ -348,14 +348,21 @@ void loop() {
   switchWas = switchNow;
 
   // CST816D gesture register: 3 = swipe left, 4 = swipe right.
-  static uint32_t lastGesture = 0;
-  if (millis() - lastGesture > 200) {
+  //
+  // The register is sticky -- it holds the last gesture rather than clearing on
+  // read -- so polling it fires the same swipe over and over. Measured: one
+  // physical swipe produced seven events, which would skip several decks.
+  // Edge-detect instead: only act on a transition from "no gesture".
+  static uint8_t prevGesture = 0;
+  static uint32_t lastGestureAt = 0;
+  if (millis() - lastGestureAt > 40) {
+    lastGestureAt = millis();
     const uint8_t g = readTouchRegister(0x01);
-    if (g == 3 || g == 4) {
-      lastGesture = millis();
+    if ((g == 3 || g == 4) && prevGesture == 0) {
       Serial.printf("[input] swipe gesture=%u\n", static_cast<unsigned>(g));
       ui::onPress();
     }
+    prevGesture = (g == 3 || g == 4) ? g : 0;
   }
 
 #ifndef DEMO_MODE

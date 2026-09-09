@@ -220,3 +220,50 @@ locally with a restore command in `rotary-flash/factory-restore/RESTORE.txt`.
 (A full 16MB `read-flash` backup was attempted first and failed with "Packet
 content transfer stopped" — long reads over USB-Serial/JTAG stall. The vendor
 image is the better recovery path anyway.)
+
+## 12. Hardware bring-up: what the wiki got wrong
+
+The wiki pin table is not sufficient to bring this board up. Two corrections,
+both found only by reading Elecrow's factory source:
+
+**GPIO1 and GPIO2 are power enables.** They must be driven HIGH before anything
+else. They appear nowhere in the wiki. Without them the panel is completely
+dead -- and misleadingly so: `gLcd.init()` still returns `true`, and driving the
+backlight pin does nothing in *either* state, which looks like a dead pin or a
+dead panel rather than a missing rail.
+
+**The touch I2C pins are 6/7, not 38/39.** The wiki's table lists 38/39 as the
+touch bus; the factory source shows those are the external 4P I2C connector
+(`I2C_SDA_PIN`/`I2C_SCL_PIN`) and touch is on `TP_I2C_SDA_PIN 6` / `TP_I2C_SCL_PIN 7`.
+
+**The backlight is not a LovyanGFX `Light_PWM`.** Elecrow drive GPIO46 with
+`ledc` directly (channel 0, 5kHz, 8-bit) and attach no light to the panel.
+Configuring `Light_PWM` produced a working panel with a permanently dark
+backlight.
+
+**Colour format.** `LV_COLOR_16_SWAP 1` *plus* `writePixels(..., swap=true)`
+swaps twice: the accent orange `#F74C00` rendered as blue (`R` and `B`
+exchanged, while white text looked fine because R=G=B), with diagonal moiré
+across the panel. Fixed by matching the factory flush exactly -- `LV_COLOR_16_SWAP 0`
+and `pushImageDMA` with an explicit `lgfx::rgb565_t` source.
+
+**The CST816D gesture register is sticky.** It holds the last gesture instead of
+clearing on read, so polling re-fires it: one physical swipe produced seven
+events and would have skipped several decks. Now edge-detected on the
+transition from "no gesture".
+
+### Verified on hardware
+
+```
+[boot] rotary-stats 0.1.0  reset=0
+[boot] psram=8386295 bytes free, heap=305444 bytes free
+[boot] power rails GPIO1/GPIO2 HIGH
+[boot] display init          [boot] gLcd.init() -> true
+[boot] backlight on (GPIO46 ledc ch0)
+[input] rotate +1 / -1       (both directions, net position tracked)
+[input] swipe gesture=3 / 4  (left and right)
+[input] press
+```
+
+Display, backlight, power rails, PSRAM, encoder, knob press and capacitive touch
+all confirmed working on the real board.
