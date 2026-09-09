@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
-#include <Wire.h>
 #include <lvgl.h>
 
 #include "board_pins.h"
@@ -39,16 +38,6 @@ void IRAM_ATTR onEncoderEdge() {
   const uint8_t now = (digitalRead(PIN_ENC_A) << 1) | digitalRead(PIN_ENC_B);
   gEncoderSteps += kQuadrature[(gEncoderPrev << 2) | now];
   gEncoderPrev = now;
-}
-
-/* -------------------------------- touch -------------------------------- */
-
-uint8_t readTouchRegister(uint8_t reg) {
-  Wire.beginTransmission(CST816D_ADDR);
-  Wire.write(reg);
-  if (Wire.endTransmission(true) != 0) return 0;
-  if (Wire.requestFrom(static_cast<uint8_t>(CST816D_ADDR), static_cast<uint8_t>(1)) != 1) return 0;
-  return Wire.read();
 }
 
 /* ------------------------------ LVGL glue ------------------------------ */
@@ -269,10 +258,6 @@ void setup() {
   initLvgl();
   ui::init(0xF74C00);
 
-  Wire.begin(PIN_TP_SDA, PIN_TP_SCL);
-  pinMode(PIN_TP_RST, OUTPUT);
-  digitalWrite(PIN_TP_RST, HIGH);
-
   pinMode(PIN_ENC_A, INPUT_PULLUP);
   pinMode(PIN_ENC_B, INPUT_PULLUP);
   pinMode(PIN_ENC_SW, INPUT_PULLUP);
@@ -346,24 +331,6 @@ void loop() {
     ui::onPress();
   }
   switchWas = switchNow;
-
-  // CST816D gesture register: 3 = swipe left, 4 = swipe right.
-  //
-  // The register is sticky -- it holds the last gesture rather than clearing on
-  // read -- so polling it fires the same swipe over and over. Measured: one
-  // physical swipe produced seven events, which would skip several decks.
-  // Edge-detect instead: only act on a transition from "no gesture".
-  static uint8_t prevGesture = 0;
-  static uint32_t lastGestureAt = 0;
-  if (millis() - lastGestureAt > 40) {
-    lastGestureAt = millis();
-    const uint8_t g = readTouchRegister(0x01);
-    if ((g == 3 || g == 4) && prevGesture == 0) {
-      Serial.printf("[input] swipe gesture=%u\n", static_cast<unsigned>(g));
-      ui::onPress();
-    }
-    prevGesture = (g == 3 || g == 4) ? g : 0;
-  }
 
 #ifndef DEMO_MODE
   const uint32_t now = millis();
