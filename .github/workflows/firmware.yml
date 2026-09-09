@@ -6,6 +6,16 @@ name: Publish firmware
 on:
   push:
     tags: ['v*']
+    # Also build (without publishing) on main. Actions caches are scoped per
+    # ref, and every tag is its own ref -- so tag-only builds could never reuse
+    # each other's cache and were cold every single time, at ~1.1GB of quota
+    # apiece. Runs *can* read the default branch's cache, so keeping a warm one
+    # on main is what makes the cache work at all. It doubles as a compile check
+    # on every firmware change instead of finding breakage at release time.
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -51,7 +61,18 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "value=${{ inputs.version || 'dev' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only tags and explicit dispatches publish. A push to main just builds,
+      # to validate the change and leave a warm cache behind.
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
 
       # The version is a generated header rather than a CLI flag: `pio run` has
@@ -70,6 +91,7 @@ jobs:
       # One merged image from 0x0 means the browser flasher needs a single part
       # and no partition offset arithmetic.
       - name: Merge image
+        if: steps.gate.outputs.publish == 'true'
         working-directory: firmware/.pio/build/crowpanel128
         run: |
           BOOT_APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -1)
@@ -86,6 +108,7 @@ jobs:
       # read-modify-write here rather than a Worker endpoint, which keeps CI on
       # the CLOUDFLARE_API_TOKEN that already exists -- no extra secret.
       - name: Publish to the Worker
+        if: steps.gate.outputs.publish == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -117,6 +140,7 @@ jobs:
           jq -r '.versions[] | "  kept \(.version)"' new-index.json
 
       - uses: actions/upload-artifact@v7
+        if: steps.gate.outputs.publish == 'true'
         with:
           name: firmware-${{ steps.ver.outputs.value }}
           path: firmware/.pio/build/crowpanel128/merged.bin
