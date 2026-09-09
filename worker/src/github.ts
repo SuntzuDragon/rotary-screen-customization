@@ -21,13 +21,22 @@ function headers(token: string, accept = 'application/vnd.github+json'): Headers
   };
 }
 
+/**
+ * $privacy is PUBLIC for the shared token and null (everything) for somebody's
+ * own PAT.
+ *
+ * Without it the query returns whatever the token can see, so a shared token
+ * that turned out to be broader than intended would quietly publish private
+ * repository names and commit subjects into the shared cache. Asking for
+ * public data explicitly means the scope of the token stops mattering.
+ */
 const PROFILE_QUERY = `
-query($login:String!, $n:Int!){
+query($login:String!, $n:Int!, $privacy:RepositoryPrivacy){
   user(login:$login){
     name login
     followers{ totalCount }
     contributionsCollection{ contributionCalendar{ totalContributions } }
-    repositories(first:$n, ownerAffiliations:OWNER, isFork:false,
+    repositories(first:$n, ownerAffiliations:OWNER, isFork:false, privacy:$privacy,
                  orderBy:{field:STARGAZERS, direction:DESC}){
       nodes{
         name
@@ -64,12 +73,17 @@ const epoch = (iso: string | null | undefined): number | null =>
 export async function fetchProfile(
   token: string,
   login: string,
+  /** Shared token: public repositories only. Own PAT: whatever it can see. */
+  publicOnly = true,
   max = 20,
 ): Promise<Omit<Snapshot, 'fetchedAt' | 'feed'>> {
   const res = await fetch(`${API}/graphql`, {
     method: 'POST',
     headers: { ...headers(token), 'content-type': 'application/json' },
-    body: JSON.stringify({ query: PROFILE_QUERY, variables: { login, n: max } }),
+    body: JSON.stringify({
+      query: PROFILE_QUERY,
+      variables: { login, n: max, privacy: publicOnly ? 'PUBLIC' : null },
+    }),
   });
   if (!res.ok) throw new GitHubError(`graphql ${res.status}`, res.status);
 
@@ -143,8 +157,15 @@ export async function fetchFeed(token: string, login: string, limit = 12): Promi
  * subset, so one snapshot can serve several devices watching the same account;
  * the per-device filter happens at payload build time instead.
  */
-export async function buildSnapshot(token: string, login: string): Promise<Snapshot> {
-  const [profile, feed] = await Promise.all([fetchProfile(token, login), fetchFeed(token, login)]);
+export async function buildSnapshot(
+  token: string,
+  login: string,
+  publicOnly = true,
+): Promise<Snapshot> {
+  const [profile, feed] = await Promise.all([
+    fetchProfile(token, login, publicOnly),
+    fetchFeed(token, login),
+  ]);
   return { ...profile, feed, fetchedAt: Math.floor(Date.now() / 1000) };
 }
 

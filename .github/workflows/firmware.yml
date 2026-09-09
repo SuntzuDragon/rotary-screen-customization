@@ -55,14 +55,31 @@ jobs:
       - name: Install toolchain
         run: pip install --quiet -r firmware/requirements.txt
 
+      # The version reaches a shell, a C header and a SQL statement, so it is
+      # validated once here rather than escaped three times downstream. Inputs
+      # go through env: -- a ${{ }} expression inside run: is spliced in as
+      # source text before the shell ever sees it.
       - name: Resolve version
         id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version || 'dev' }}
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            VALUE="${GITHUB_REF_NAME#v}"
           else
-            echo "value=${{ inputs.version || 'dev' }}" >> "$GITHUB_OUTPUT"
+            VALUE="$INPUT_VERSION"
           fi
+          case "$VALUE" in
+            [A-Za-z0-9]*) ;;
+            *) echo "refusing version '$VALUE': must start with a letter or digit"; exit 1 ;;
+          esac
+          case "$VALUE" in
+            *[!A-Za-z0-9._-]*)
+              echo "refusing version '$VALUE': letters, digits, dot, dash, underscore only"
+              exit 1 ;;
+          esac
+          if [ "${#VALUE}" -gt 32 ]; then echo "version too long"; exit 1; fi
+          echo "value=$VALUE" >> "$GITHUB_OUTPUT"
 
       # Only tags and explicit dispatches publish. A push to main just builds,
       # to validate the change and leave a warm cache behind.
@@ -79,9 +96,10 @@ jobs:
       # no --project-option, and a header keeps local and CI builds identical.
       - name: Stamp version
         working-directory: firmware
+        env:
+          VERSION: ${{ steps.ver.outputs.value }}
         run: |
-          printf '#pragma once\n#define FW_VERSION "%s"\n' "${{ steps.ver.outputs.value }}" \
-            > include/fw_version.h
+          printf '#pragma once\n#define FW_VERSION "%s"\n' "$VERSION" > include/fw_version.h
           cat include/fw_version.h
 
       - name: Build
@@ -143,11 +161,12 @@ jobs:
           done
 
           npx wrangler d1 execute rotary-stats --remote --command "
-            INSERT INTO firmware (version, sha256, size, source, uploaded_at)
-            VALUES ('$VERSION', '$SHA', $SIZE, 'ci', $NOW)
+            INSERT INTO firmware (version, sha256, size, source, uploaded_at, owner)
+            VALUES ('$VERSION', '$SHA', $SIZE, 'ci', $NOW, NULL)
             ON CONFLICT(version) DO UPDATE SET sha256=excluded.sha256, size=excluded.size,
                                                source=excluded.source,
-                                               uploaded_at=excluded.uploaded_at;
+                                               uploaded_at=excluded.uploaded_at,
+                                               owner=NULL;
             INSERT INTO meta (key, value) VALUES ('fw_latest', '$VERSION')
             ON CONFLICT(key) DO UPDATE SET value=excluded.value;
           "

@@ -97,7 +97,10 @@ cd worker && npx wrangler dev          # API + built UI on :8787
 cd web    && npm run dev               # UI with HMR, proxying /api to :8787
 ```
 
-Put a `GH_TOKEN` and `ENC_KEY` in `worker/.dev.vars` (gitignored).
+Put a `GH_TOKEN` and `ENC_KEY` in `worker/.dev.vars` (gitignored). Use a
+fine-grained read-only public-repo PAT here too, not a `gh` CLI token — those
+carry `repo` and write access to the whole account, and the profile query asks
+for every repository the token can see.
 
 ## Gotchas worth knowing
 

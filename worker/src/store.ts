@@ -228,7 +228,14 @@ export async function getUserToken(env: Env, id: string): Promise<string | null>
 }
 
 export async function clearUserToken(env: Env, id: string) {
-  await env.DB.prepare('DELETE FROM user_tokens WHERE device_id = ?').bind(id).run();
+  // The cached data this token fetched goes with it. Those rows are keyed
+  // `login#deviceid` and nothing else ever reads them, so leaving them behind
+  // means private repository data outliving the credential that fetched it.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM user_tokens WHERE device_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM snapshots WHERE login LIKE ?').bind(`%#${id}`),
+    env.DB.prepare('DELETE FROM events WHERE login LIKE ?').bind(`%#${id}`),
+  ]);
 }
 
 /* ---------- device logs ---------- */
@@ -281,13 +288,37 @@ const fwBinKey = (version: string) => `fw:bin:${version}`;
 
 export const MAX_FIRMWARE_VERSIONS = 10;
 
+/** Per-device cap on hand-uploaded images. */
+export const MAX_FIRMWARE_UPLOADS = 3;
+
+/** Ceiling on how many devices one cron run will refresh. */
+export const MAX_CRON_DEVICES = 200;
+
 export const getFirmwareBin = (env: Env, version: string) =>
   env.DEVICES.get(fwBinKey(version), 'arrayBuffer');
 
-export async function getFirmwareIndex(env: Env): Promise<FirmwareIndex | null> {
+/**
+ * The builds a caller may choose from: every CI build, plus that caller's own
+ * uploads. Anyone can mint a device id, so an upload is only ever offered back
+ * to the device that made it -- otherwise the dropdown would be a way to put a
+ * stranger's binary in front of somebody about to flash their board.
+ */
+export async function getFirmwareIndex(
+  env: Env,
+  viewer: string | null = null,
+): Promise<FirmwareIndex | null> {
   const rows = await env.DB.prepare(
-    'SELECT version, sha256, size, source, uploaded_at FROM firmware ORDER BY uploaded_at DESC',
-  ).all<{ version: string; sha256: string; size: number; source: string; uploaded_at: number }>();
+    `SELECT version, sha256, size, source, uploaded_at, owner FROM firmware
+      WHERE owner IS NULL OR owner = ?
+      ORDER BY uploaded_at DESC`,
+  ).bind(viewer).all<{
+    version: string;
+    sha256: string;
+    size: number;
+    source: string;
+    uploaded_at: number;
+    owner: string | null;
+  }>();
 
   const versions = (rows.results ?? []).map((r) => ({
     version: r.version,
@@ -295,37 +326,64 @@ export async function getFirmwareIndex(env: Env): Promise<FirmwareIndex | null> 
     size: r.size,
     source: r.source as 'ci' | 'upload',
     uploadedAt: r.uploaded_at,
+    owner: r.owner,
   }));
   if (versions.length === 0) return null;
 
+  // fw_latest only ever names a CI build, so fall back to the newest one of
+  // those rather than to versions[0], which could be the caller's own upload.
   const latest = await env.DB.prepare("SELECT value FROM meta WHERE key = 'fw_latest'")
     .first<{ value: string }>();
-  return { latest: latest?.value ?? versions[0]!.version, versions };
+  const newestCi = versions.find((v) => v.owner === null);
+  return { latest: latest?.value ?? newestCi?.version ?? versions[0]!.version, versions };
 }
 
-/** Store an image and make it the latest, pruning beyond MAX_FIRMWARE_VERSIONS. */
+/**
+ * Store an image, pruning beyond MAX_FIRMWARE_VERSIONS.
+ *
+ * A CI build (owner null) becomes the latest. An upload never does, and never
+ * overwrites a row it does not own -- both are how a self-minted device key
+ * would otherwise turn into "everybody's default firmware".
+ */
 export async function publishFirmware(env: Env, meta: FirmwareMeta, bin: ArrayBuffer) {
+  const owner = meta.owner ?? null;
+
+  const claimed = await env.DB.prepare('SELECT owner FROM firmware WHERE version = ?')
+    .bind(meta.version)
+    .first<{ owner: string | null }>();
+  if (claimed && (claimed.owner ?? null) !== owner) {
+    throw new Error(`version ${meta.version} already belongs to someone else`);
+  }
+
   await env.DEVICES.put(fwBinKey(meta.version), bin);
 
-  await env.DB.batch([
+  const writes = [
     env.DB.prepare(
-      `INSERT INTO firmware (version, sha256, size, source, uploaded_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO firmware (version, sha256, size, source, uploaded_at, owner)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(version) DO UPDATE SET sha256 = excluded.sha256, size = excluded.size,
                                           source = excluded.source,
                                           uploaded_at = excluded.uploaded_at`,
-    ).bind(meta.version, meta.sha256, meta.size, meta.source, meta.uploadedAt),
-    env.DB.prepare(
-      `INSERT INTO meta (key, value) VALUES ('fw_latest', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    ).bind(meta.version),
-  ]);
+    ).bind(meta.version, meta.sha256, meta.size, meta.source, meta.uploadedAt, owner),
+  ];
+  if (owner === null) {
+    writes.push(
+      env.DB.prepare(
+        `INSERT INTO meta (key, value) VALUES ('fw_latest', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      ).bind(meta.version),
+    );
+  }
+  await env.DB.batch(writes);
 
-  // Prune old builds so KV storage cannot grow without bound.
+  // Prune within the owner's own bucket. Sharing one bucket meant a handful of
+  // junk uploads could evict every real release.
   const stale = await env.DB.prepare(
-    'SELECT version FROM firmware ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?',
+    owner === null
+      ? 'SELECT version FROM firmware WHERE owner IS NULL ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?1'
+      : 'SELECT version FROM firmware WHERE owner = ?2 ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?1',
   )
-    .bind(MAX_FIRMWARE_VERSIONS)
+    .bind(...(owner === null ? [MAX_FIRMWARE_VERSIONS] : [MAX_FIRMWARE_UPLOADS, owner]))
     .all<{ version: string }>();
   for (const r of stale.results ?? []) {
     await env.DEVICES.delete(fwBinKey(r.version));
@@ -333,8 +391,37 @@ export async function publishFirmware(env: Env, meta: FirmwareMeta, bin: ArrayBu
   }
 }
 
-/** Device ids known to the cron job. A SELECT, where KV needed a rate-limited list. */
-export async function listDeviceIds(env: Env): Promise<string[]> {
-  const res = await env.DB.prepare('SELECT id FROM devices').all<{ id: string }>();
+/**
+ * Device ids the cron job should refresh. A SELECT, where KV needed a
+ * rate-limited list.
+ *
+ * Registration is open, so the row count is not something we control. Bounding
+ * this on last_seen keeps the GitHub call budget proportional to the devices
+ * actually in use rather than to the number of ids anyone has ever minted, and
+ * taking the oldest first means a burst of new rows cannot crowd out the
+ * devices that have been running for months.
+ */
+export async function listDeviceIds(env: Env, activeWithin = 7 * 86400): Promise<string[]> {
+  const cutoff = Math.floor(Date.now() / 1000) - activeWithin;
+  const res = await env.DB.prepare(
+    `SELECT id FROM devices WHERE last_seen IS NOT NULL AND last_seen >= ?
+      ORDER BY registered_at ASC LIMIT ?`,
+  )
+    .bind(cutoff, MAX_CRON_DEVICES)
+    .all<{ id: string }>();
   return (res.results ?? []).map((r) => r.id);
+}
+
+/**
+ * How many devices registered in the last hour.
+ *
+ * Registration is deliberately open -- a device mints its own identity on first
+ * boot, with nothing to authenticate against. That makes an hourly ceiling the
+ * only thing standing between a script and an unbounded devices table.
+ */
+export async function recentRegistrations(env: Env, withinSeconds = 3600): Promise<number> {
+  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE registered_at >= ?')
+    .bind(Math.floor(Date.now() / 1000) - withinSeconds)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }

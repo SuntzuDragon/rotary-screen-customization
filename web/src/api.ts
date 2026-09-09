@@ -82,32 +82,59 @@ export const getStatus = (s: Session) =>
   }>(s, 'status');
 
 /** Public firmware list — no session needed, so flashing never depends on one. */
-export async function listFirmware(): Promise<FirmwareIndex> {
-  const res = await fetch('/api/firmware/list');
+export async function listFirmware(s?: Session | null): Promise<FirmwareIndex> {
+  // With a session the list also carries that device's own uploads; without
+  // one it is the published releases, which is all a stranger should see.
+  const res = await fetch(
+    s ? `/api/firmware/list?d=${encodeURIComponent(s.id)}` : '/api/firmware/list',
+    s ? { headers: { 'x-device-key': s.key } } : {},
+  );
   if (!res.ok) throw new Error(`could not list firmware (${res.status})`);
   return res.json() as Promise<FirmwareIndex>;
 }
 
-/** Fetch a published image for flashing. */
-export async function fetchFirmware(version: string): Promise<ArrayBuffer> {
+const hex = (buf: ArrayBuffer) =>
+  [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * Fetch a published image for flashing, checking it against the digest the
+ * index recorded. The hash was stored from the first release and never read;
+ * an image that does not match it does not go anywhere near the board.
+ */
+export async function fetchFirmware(version: string, sha256?: string): Promise<ArrayBuffer> {
   const res = await fetch(`/api/firmware/merged.bin?v=${encodeURIComponent(version)}`);
   if (!res.ok) throw new Error(`could not download ${version} (${res.status})`);
-  return res.arrayBuffer();
+  const bin = await res.arrayBuffer();
+  if (sha256) {
+    const got = hex(await crypto.subtle.digest('SHA-256', bin));
+    if (got !== sha256) {
+      throw new Error(`${version} failed its checksum — refusing to flash it`);
+    }
+  }
+  return bin;
 }
 
-/** Upload a hand-supplied merged image. The body is the binary itself. */
-export async function uploadFirmware(s: Session, file: File, version: string) {
-  const res = await fetch(
-    `/api/firmware/upload?d=${encodeURIComponent(s.id)}&k=${encodeURIComponent(s.key)}` +
-      `&v=${encodeURIComponent(version)}`,
-    { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' } },
-  );
-  const body = (await res.json().catch(() => null)) as { error?: string; sha256?: string } | null;
+/**
+ * Upload a hand-supplied merged image. The body is the binary itself, so the
+ * device id rides in the query string -- but the key goes in a header, since
+ * query strings end up in request logs, history and Referer. The version is
+ * derived server-side from the image's digest.
+ */
+export async function uploadFirmware(s: Session, file: File) {
+  const res = await fetch(`/api/firmware/upload?d=${encodeURIComponent(s.id)}`, {
+    method: 'POST',
+    body: file,
+    headers: { 'content-type': 'application/octet-stream', 'x-device-key': s.key },
+  });
+  const body = (await res.json().catch(() => null)) as
+    | { error?: string; version?: string; sha256?: string }
+    | null;
   if (!res.ok) throw new Error(body?.error ?? `${res.status}`);
-  return body as { sha256: string; size: number };
+  return body as { version: string; sha256: string; size: number };
 }
 
-export const tokenStatus = (s: Session) => call<{ present: boolean }>(s, 'token');
+export const tokenStatus = (s: Session) =>
+  call<{ present: boolean; broken: boolean }>(s, 'token');
 
 export const setToken = (s: Session, token: string) =>
   call<{ ok: true; login: string }>(s, 'token', {

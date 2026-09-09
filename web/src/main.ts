@@ -112,6 +112,7 @@ function firmwareCard(session: api.Session | null) {
   const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
 
   let runningVersion: string | null = null;
+  let fwIndex: api.FirmwareIndex | null = null;
 
   const logLine = (line: string) => {
     fwLog.textContent = `${(fwLog.textContent ?? '') + line}`.slice(-8000);
@@ -128,8 +129,9 @@ function firmwareCard(session: api.Session | null) {
         runningVersion = status.device?.fwVersion ?? null;
         index = status.firmware;
       } else {
-        index = await api.listFirmware();
+        index = await api.listFirmware(session);
       }
+      fwIndex = index;
 
       const versions = index?.versions ?? [];
       if (versions.length === 0) {
@@ -184,7 +186,8 @@ function firmwareCard(session: api.Session | null) {
     fwStatus.replaceChildren(note(`Downloading ${version}…`));
 
     try {
-      const image = await api.fetchFirmware(version);
+      const chosen = fwIndex?.versions.find((v) => v.version === version);
+      const image = await api.fetchFirmware(version, chosen?.sha256);
       logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
       fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
 
@@ -230,8 +233,7 @@ function firmwareCard(session: api.Session | null) {
     fwUpload.disabled = true;
     fwStatus.replaceChildren(note(`Uploading ${(file.size / 1024).toFixed(0)} KB…`));
     try {
-      // Version labels stay ISO: they are identifiers, not display text.
-      await api.uploadFirmware(session, file, `custom-${new Date().toISOString().slice(0, 10)}`);
+      await api.uploadFirmware(session, file);
       await paint();
     } catch (err) {
       fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
@@ -385,7 +387,11 @@ function provisionView(conn: Connection) {
         // and render the settings view directly instead.
         const adopted = adoptSession(next);
         if (adopted) void configView(adopted);
-        else location.href = next;
+        // Anything else came from the device and is not ours to navigate to. A
+        // `javascript:` URL parses fine, has origin "null" so it fails the
+        // check adoptSession makes, and would then run in this origin -- with
+        // the session sitting in localStorage.
+        else throw new Error(`the device pointed at ${next}, which is not this site`);
       } else {
         status.replaceChildren(
           note('Wi-Fi connected, but the device sent no settings URL.', 'err'),
@@ -660,7 +666,7 @@ async function configView(session: api.Session) {
   const tokenRemove = el('button', { class: 'ghost' }, 'Disconnect');
   const tokenStatus = el('div', { class: 'status' });
 
-  const paintToken = (present: boolean, detail?: string) => {
+  const paintToken = (present: boolean, detail?: string, tone?: 'ok' | 'info' | 'err') => {
     tokenRemove.style.display = present ? '' : 'none';
     tokenSave.textContent = present ? 'Replace token' : 'Connect GitHub';
     tokenStatus.replaceChildren(
@@ -669,14 +675,23 @@ async function configView(session: api.Session) {
           (present
             ? 'Using your token — private repos included, and requests count against your own rate limit.'
             : "Right now this uses the owner's token, so only public data is visible."),
-        present ? 'ok' : 'info',
+        tone ?? (present ? 'ok' : 'info'),
       ),
     );
   };
   paintToken(false);
   api
     .tokenStatus(session)
-    .then((s) => paintToken(s.present))
+    .then((s) =>
+      paintToken(
+        s.present,
+        s.broken
+          ? 'Your stored token can no longer be read — reconnect it. Until then this ' +
+              "falls back to the owner's token and shows public data only."
+          : undefined,
+        s.broken ? 'err' : undefined,
+      ),
+    )
     .catch(() => {});
 
   tokenSave.onclick = async () => {

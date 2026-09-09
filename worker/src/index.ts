@@ -4,6 +4,7 @@ import {
   clearUserToken,
   getFirmwareBin,
   getFirmwareIndex,
+  recentRegistrations,
   publishFirmware,
   putDeviceLog,
   getDeviceLog,
@@ -27,6 +28,9 @@ import { decryptSecret, encryptSecret, safeEqual, sha256Hex } from './crypto';
 import { ALL_DECKS, defaultConfig } from './types';
 import type { DeckId, DeviceConfig, Env, Theme } from './types';
 
+/** New identities per hour, account-wide. A real device registers once. */
+const MAX_NEW_DEVICES_PER_HOUR = 20;
+
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
     ...init,
@@ -39,8 +43,9 @@ const fail = (status: number, msg: string) => json({ error: msg }, { status });
 async function authorised(env: Env, id: string, req: Request): Promise<boolean> {
   const auth = await getAuth(env, id);
   if (!auth) return false;
-  const key =
-    req.headers.get('x-device-key') ?? new URL(req.url).searchParams.get('k') ?? '';
+  // Header only. A key in the query string is copied into request logs,
+  // analytics, browser history and any Referer the page emits.
+  const key = req.headers.get('x-device-key') ?? '';
   if (!key) return false;
   return safeEqual(auth.secretHash, await sha256Hex(key));
 }
@@ -55,7 +60,9 @@ export async function refreshLogin(
 ): Promise<void> {
   const scope = snapshotScope(login, privateForDevice);
   const prev = await getSnapshot(env, scope);
-  const next = await buildSnapshot(token, login);
+  // Only a device's own PAT may pull in private repositories -- and when it
+  // does, snapshotScope keeps the result out of the shared cache.
+  const next = await buildSnapshot(token, login, privateForDevice === null);
   const fresh = diffSnapshots(prev, next);
   if (fresh.length) {
     const ring = await getEvents(env, scope);
@@ -70,14 +77,27 @@ export async function refreshLogin(
   if (!sameContent) await putSnapshot(env, scope, next);
 }
 
-/** The token to use for a device, and whether it belongs to that device. */
-async function tokenFor(env: Env, id: string): Promise<{ token: string; personal: boolean }> {
+/**
+ * The token to use for a device, and whether it belongs to that device.
+ *
+ * A stored PAT that will not decrypt falls back to the shared token, which is
+ * the right behaviour -- the display keeps working -- but it is silent, and it
+ * also moves the device out of its private cache scope. `broken` is how
+ * GET /api/token tells "you never added one" apart from "yours stopped
+ * working", which is what rotating ENC_KEY does to everybody at once.
+ */
+async function tokenFor(
+  env: Env,
+  id: string,
+): Promise<{ token: string; personal: boolean; broken: boolean }> {
   const stored = await getUserToken(env, id);
   if (stored) {
     const pat = await decryptSecret(env.ENC_KEY, stored);
-    if (pat) return { token: pat, personal: true };
+    if (pat) return { token: pat, personal: true, broken: false };
+    console.error(`stored token for ${id} would not decrypt`);
+    return { token: env.GH_TOKEN, personal: false, broken: true };
   }
-  return { token: env.GH_TOKEN, personal: false };
+  return { token: env.GH_TOKEN, personal: false, broken: false };
 }
 
 async function payloadFor(env: Env, id: string) {
@@ -105,6 +125,9 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
   if (b.repos === null) repos = null;
   else if (Array.isArray(b.repos)) {
     if (!b.repos.every((r) => typeof r === 'string')) return 'repos must be strings';
+    // GitHub caps repository names at 100 characters; anything longer is
+    // padding aimed at the D1 row this gets stringified into.
+    if ((b.repos as string[]).some((r) => r.length > 100)) return 'repo name too long';
     repos = (b.repos as string[]).slice(0, 20);
   }
 
@@ -150,12 +173,18 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (resource === 'health') return json({ ok: true, rate: lastRateRemaining });
 
   /*
-   * Firmware endpoints are unauthenticated on purpose: esp-web-tools fetches
-   * the manifest and image straight from the browser before any device exists
-   * to authenticate as. The image is a build artefact, not a secret.
+   * Firmware endpoints are unauthenticated on purpose: the flasher fetches the
+   * manifest and image straight from the browser before any device exists to
+   * authenticate as. The image is a build artefact, not a secret.
+   *
+   * A caller that *does* present a device key additionally sees its own
+   * uploads -- see getFirmwareIndex.
    */
   if (resource === 'firmware') {
-    const index = await getFirmwareIndex(env);
+    const asker = url.searchParams.get('d') ?? '';
+    const viewer =
+      /^[a-z0-9]{4,32}$/.test(asker) && (await authorised(env, asker, req)) ? asker : null;
+    const index = await getFirmwareIndex(env, viewer);
     const wanted = url.searchParams.get('v') || index?.latest || '';
     const meta = index?.versions.find((v) => v.version === wanted) ?? null;
 
@@ -214,7 +243,9 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     }
 
     // Hand-supplied image from the settings page. Authenticated with a device's
-    // own key, passed as query params since the body is the binary.
+    // own key; the id travels as a query param since the body is the binary,
+    // but the key itself goes in a header -- query strings end up in request
+    // logs, browser history and Referer.
     if (id === 'upload' && req.method === 'POST') {
       const owner = url.searchParams.get('d') ?? '';
       if (!/^[a-z0-9]{4,32}$/.test(owner)) return fail(400, 'bad device id');
@@ -234,18 +265,23 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
 
+      // The version is derived, not supplied. A caller-chosen string could name
+      // an existing release and replace its bytes in place.
+      const version = `custom-${owner}-${sha256.slice(0, 8)}`;
+
       await publishFirmware(
         env,
         {
-          version: (url.searchParams.get('v') || 'custom').slice(0, 32),
+          version,
           sha256,
           size: bin.byteLength,
           source: 'upload',
           uploadedAt: Math.floor(Date.now() / 1000),
+          owner,
         },
         bin,
       );
-      return json({ ok: true, sha256, size: bin.byteLength },
+      return json({ ok: true, version, sha256, size: bin.byteLength },
         { headers: { 'access-control-allow-origin': '*' } });
     }
   }
@@ -263,6 +299,12 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     if (existing && !safeEqual(existing.secretHash, hash)) {
       return fail(409, 'device id already claimed');
     }
+    // Anyone can mint an id, so cap how fast new ones appear. Re-registering an
+    // id you already hold is always allowed -- that is what a reflashed device
+    // does, and it must never be refused because a stranger filled the bucket.
+    if (!existing && (await recentRegistrations(env)) >= MAX_NEW_DEVICES_PER_HOUR) {
+      return fail(429, 'too many new devices right now, try again later');
+    }
     const now = Math.floor(Date.now() / 1000);
     await putAuth(env, id, {
       secretHash: hash,
@@ -272,8 +314,8 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     const config = await ensureConfig(env, id);
 
     // Warm the cache immediately so the first poll has data to show.
-    if (!(await getSnapshot(env, config.login))) {
-      const { token, personal } = await tokenFor(env, id);
+    const { token, personal } = await tokenFor(env, id);
+    if (!(await getSnapshot(env, snapshotScope(config.login, personal ? id : null)))) {
       ctx.waitUntil(
         refreshLogin(env, config.login, token, personal ? id : null).catch(() => {}),
       );
@@ -355,7 +397,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   }
 
   if (resource === 'status' && req.method === 'GET') {
-    const [status, fw] = await Promise.all([getStatus(env, id), getFirmwareIndex(env)]);
+    const [status, fw] = await Promise.all([getStatus(env, id), getFirmwareIndex(env, id)]);
     return json(
       { device: status, firmware: fw },
       { headers: { 'access-control-allow-origin': '*' } },
@@ -390,7 +432,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   /* The repo picker needs the full list, not the filtered one. */
   if (resource === 'repos' && req.method === 'GET') {
     const config = await ensureConfig(env, id);
-    const snap = await getSnapshot(env, config.login);
+    // Through snapshotScope like every other read: a device with its own PAT
+    // has its data in a private scope, and must not be handed the shared one.
+    const { personal } = await tokenFor(env, id);
+    const snap = await getSnapshot(env, snapshotScope(config.login, personal ? id : null));
     if (!snap) return fail(503, 'no data yet');
     return json(
       {
@@ -404,8 +449,9 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (resource === 'token') {
     if (req.method === 'GET') {
       const stored = await getUserToken(env, id);
+      const { broken } = await tokenFor(env, id);
       return json(
-        { present: Boolean(stored) },
+        { present: Boolean(stored), broken },
         { headers: { 'access-control-allow-origin': '*' } },
       );
     }
@@ -431,6 +477,18 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (resource === 'refresh' && req.method === 'POST') {
     const config = await ensureConfig(env, id);
     const { token, personal } = await tokenFor(env, id);
+    const scope = snapshotScope(config.login, personal ? id : null);
+
+    // Throttled against the snapshot's own age. Unthrottled, a loop here spends
+    // the account's whole GitHub rate limit -- and doubles as a way to scrape
+    // GitHub through somebody else's token.
+    const snap = await getSnapshot(env, scope);
+    const age = snap ? Math.floor(Date.now() / 1000) - snap.fetchedAt : Infinity;
+    if (age < 60) {
+      return json({ ok: true, skipped: 'too soon', age },
+        { headers: { 'access-control-allow-origin': '*' } });
+    }
+
     await refreshLogin(env, config.login, token, personal ? id : null);
     return json({ ok: true }, { headers: { 'access-control-allow-origin': '*' } });
   }
@@ -445,11 +503,30 @@ export default {
       try {
         return await handleApi(req, env, ctx);
       } catch (err) {
+        // The detail goes to the log, not to the caller: these strings come
+        // from GitHub and WebCrypto and are not written with an audience in
+        // mind.
         console.error('api error', err);
-        return fail(500, err instanceof Error ? err.message : 'internal error');
+        return fail(500, 'internal error');
       }
     }
-    return env.ASSETS.fetch(req);
+    const res = await env.ASSETS.fetch(req);
+    const out = new Response(res.body, res);
+    // The page holds the device secret in localStorage, so same-origin
+    // isolation is what protects it. These make that harder to lose.
+    out.headers.set('x-content-type-options', 'nosniff');
+    out.headers.set('x-frame-options', 'DENY');
+    out.headers.set('referrer-policy', 'no-referrer');
+    out.headers.set(
+      'content-security-policy',
+      "default-src 'self'; script-src 'self'; " +
+        // The stylesheet @imports Montserrat from Google Fonts.
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; " +
+        "base-uri 'none'; form-action 'none'",
+    );
+    return out;
   },
 
   /**

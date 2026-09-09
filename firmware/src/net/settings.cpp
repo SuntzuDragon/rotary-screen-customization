@@ -1,6 +1,8 @@
 #include "settings.h"
 
 #include <Preferences.h>
+#include <esp_random.h>
+#include <bootloader_random.h>
 
 #ifndef DEFAULT_BASE_URL
 #define DEFAULT_BASE_URL "https://hdog.imcb.dev"
@@ -9,6 +11,18 @@
 namespace {
 Preferences prefs;
 String gId, gSecret;
+
+/**
+ * esp_random() is only a true RNG while the RF subsystem is running, and this
+ * runs long before WiFi.begin(). Before then it is a thinly seeded PRNG, which
+ * for a value that is the *only* thing protecting a device's config and its
+ * stored GitHub token is not good enough -- a batch of boards could otherwise
+ * come up with related secrets. The bootloader entropy source covers the gap.
+ */
+struct EntropyGuard {
+  EntropyGuard() { bootloader_random_enable(); }
+  ~EntropyGuard() { bootloader_random_disable(); }
+};
 
 String randomHex(size_t bytes) {
   String out;
@@ -37,14 +51,17 @@ void begin() {
   prefs.begin("rstats", false);
 
   gId = prefs.getString("id", "");
-  if (gId.isEmpty()) {
-    gId = randomId(8);
-    prefs.putString("id", gId);
-  }
   gSecret = prefs.getString("secret", "");
-  if (gSecret.isEmpty()) {
-    gSecret = randomHex(16);
-    prefs.putString("secret", gSecret);
+  if (gId.isEmpty() || gSecret.isEmpty()) {
+    EntropyGuard entropy;
+    if (gId.isEmpty()) {
+      gId = randomId(8);
+      prefs.putString("id", gId);
+    }
+    if (gSecret.isEmpty()) {
+      gSecret = randomHex(16);
+      prefs.putString("secret", gSecret);
+    }
   }
 }
 

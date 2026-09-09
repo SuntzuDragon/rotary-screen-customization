@@ -97,6 +97,8 @@ export interface FirmwareMeta {
   /** 'ci' for a tagged build, 'upload' for a hand-supplied binary. */
   source: 'ci' | 'upload';
   uploadedAt: number;
+  /** Device that uploaded it; null for a CI build, which everyone can see. */
+  owner?: string | null;
 }
 
 /** Every published build, so the settings page can offer a choice. */
