@@ -24,6 +24,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: firmware/requirements.txt
 
       # The key includes the run id so the cache is *written* every run, with
       # restore-keys pulling in the previous one. A fixed key only ever saves
@@ -42,7 +43,7 @@ jobs:
             pio-
 
       - name: Install toolchain
-        run: pip install --quiet platformio esptool
+        run: pip install --quiet -r firmware/requirements.txt
 
       - name: Resolve version
         id: ver
