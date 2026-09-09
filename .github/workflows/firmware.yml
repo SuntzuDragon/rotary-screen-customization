@@ -64,20 +64,40 @@ jobs:
             0x10000 firmware.bin
           ls -l merged.bin
 
+      # Images are keyed by version and listed in fw:index, so the settings page
+      # can offer every published build (and roll back to one). The index is a
+      # read-modify-write here rather than a Worker endpoint, which keeps CI on
+      # the CLOUDFLARE_API_TOKEN that already exists -- no extra secret.
       - name: Publish to the Worker
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.value }}
         run: |
+          set -euo pipefail
           BIN=../firmware/.pio/build/crowpanel128/merged.bin
           SHA=$(sha256sum "$BIN" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$BIN")
           npm ci
-          npx wrangler kv key put fw:bin --binding DEVICES --remote --path "$BIN"
-          printf '{"version":"%s","sha256":"%s","size":%s,"source":"ci","uploadedAt":%s}' \
-            "${{ steps.ver.outputs.value }}" "$SHA" "$SIZE" "$(date +%s)" > meta.json
-          npx wrangler kv key put fw:meta --binding DEVICES --remote --path meta.json
-          echo "published ${{ steps.ver.outputs.value }} ($SIZE bytes, $SHA)"
+
+          npx wrangler kv key put "fw:bin:$VERSION" --binding DEVICES --remote --path "$BIN"
+
+          npx wrangler kv key get fw:index --binding DEVICES --remote > old-index.json 2>/dev/null \
+            || echo '{"latest":"","versions":[]}' > old-index.json
+          [ -s old-index.json ] || echo '{"latest":"","versions":[]}' > old-index.json
+
+          jq -n \
+            --arg v "$VERSION" --arg sha "$SHA" --argjson size "$SIZE" \
+            --argjson now "$(date +%s)" --slurpfile old old-index.json '
+              ($old[0] // {latest:"", versions:[]}) as $o
+              | {version:$v, sha256:$sha, size:$size, source:"ci", uploadedAt:$now} as $new
+              | {latest: $v,
+                 versions: ([$new] + [$o.versions[]? | select(.version != $v)])[0:10]}
+            ' > new-index.json
+
+          npx wrangler kv key put fw:index --binding DEVICES --remote --path new-index.json
+          echo "published $VERSION ($SIZE bytes, $SHA)"
+          jq -r '.versions[] | "  kept \(.version)"' new-index.json
 
       - uses: actions/upload-artifact@v4
         with:

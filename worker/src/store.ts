@@ -3,6 +3,7 @@ import type {
   DerivedEvent,
   DeviceStatus,
   Env,
+  FirmwareIndex,
   FirmwareMeta,
   Snapshot,
 } from './types';
@@ -74,20 +75,40 @@ export const clearUserToken = (env: Env, id: string) => env.DEVICES.delete(patKe
 
 /* ---------- firmware ---------- */
 
-// The merged image lives in KV rather than R2: ~1.4MB against a 25MB per-value
-// limit, and it keeps the whole deploy to a single binding.
-const FW_BIN = 'fw:bin';
-const FW_META = 'fw:meta';
+// Merged images live in KV rather than R2: ~1.4MB each against a 25MB
+// per-value limit, and it keeps the whole deploy to a single binding. Each
+// published version is kept so the settings page can offer a choice, including
+// rolling back.
+const FW_INDEX = 'fw:index';
+const fwBinKey = (version: string) => `fw:bin:${version}`;
 const statusKey = (id: string) => `dev:${id}:status`;
 
-export const getFirmwareMeta = (env: Env) => getJSON<FirmwareMeta>(env, FW_META);
+export const MAX_FIRMWARE_VERSIONS = 10;
 
-export const putFirmwareMeta = (env: Env, m: FirmwareMeta) =>
-  env.DEVICES.put(FW_META, JSON.stringify(m));
+export const getFirmwareIndex = (env: Env) => getJSON<FirmwareIndex>(env, FW_INDEX);
 
-export const getFirmwareBin = (env: Env) => env.DEVICES.get(FW_BIN, 'arrayBuffer');
+export const getFirmwareBin = (env: Env, version: string) =>
+  env.DEVICES.get(fwBinKey(version), 'arrayBuffer');
 
-export const putFirmwareBin = (env: Env, bin: ArrayBuffer) => env.DEVICES.put(FW_BIN, bin);
+/**
+ * Store a build and make it the latest. Older builds are pruned beyond
+ * MAX_FIRMWARE_VERSIONS so KV cannot grow without bound; a re-published version
+ * replaces the existing entry rather than duplicating it.
+ */
+export async function publishFirmware(env: Env, meta: FirmwareMeta, bin: ArrayBuffer) {
+  await env.DEVICES.put(fwBinKey(meta.version), bin);
+
+  const index = (await getFirmwareIndex(env)) ?? { latest: meta.version, versions: [] };
+  const versions = [meta, ...index.versions.filter((v) => v.version !== meta.version)];
+
+  for (const stale of versions.slice(MAX_FIRMWARE_VERSIONS)) {
+    await env.DEVICES.delete(fwBinKey(stale.version));
+  }
+  await env.DEVICES.put(
+    FW_INDEX,
+    JSON.stringify({ latest: meta.version, versions: versions.slice(0, MAX_FIRMWARE_VERSIONS) }),
+  );
+}
 
 export const getStatus = (env: Env, id: string) => getJSON<DeviceStatus>(env, statusKey(id));
 

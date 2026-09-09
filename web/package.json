@@ -10,8 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@material/web": "2.2.0",
-    "esp-web-tools": "^10.4.0",
+    "esptool-js": "^0.6.1",
     "improv-wifi-serial-sdk": "^2.8.1"
   },
   "devDependencies": {

@@ -3,9 +3,8 @@ import { buildPayload, diffSnapshots } from './payload';
 import {
   clearUserToken,
   getFirmwareBin,
-  getFirmwareMeta,
-  putFirmwareBin,
-  putFirmwareMeta,
+  getFirmwareIndex,
+  publishFirmware,
   getStatus,
   putStatus,
   ensureConfig,
@@ -137,7 +136,15 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
    * to authenticate as. The image is a build artefact, not a secret.
    */
   if (resource === 'firmware') {
-    const meta = await getFirmwareMeta(env);
+    const index = await getFirmwareIndex(env);
+    const wanted = url.searchParams.get('v') || index?.latest || '';
+    const meta = index?.versions.find((v) => v.version === wanted) ?? null;
+
+    if (id === 'list') {
+      return json(index ?? { latest: '', versions: [] }, {
+        headers: { 'access-control-allow-origin': '*' },
+      });
+    }
 
     if (id === 'manifest.json') {
       if (!meta) return fail(404, 'no firmware published yet');
@@ -149,7 +156,12 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
           builds: [
             {
               chipFamily: 'ESP32-S3',
-              parts: [{ path: `${url.origin}/api/firmware/merged.bin`, offset: 0 }],
+              parts: [
+                {
+                  path: `${url.origin}/api/firmware/merged.bin?v=${encodeURIComponent(meta.version)}`,
+                  offset: 0,
+                },
+              ],
             },
           ],
         },
@@ -158,22 +170,20 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     }
 
     if (id === 'merged.bin') {
-      const bin = await getFirmwareBin(env);
-      if (!bin) return fail(404, 'no firmware published yet');
+      if (!meta) return fail(404, 'no such firmware version');
+      const bin = await getFirmwareBin(env, meta.version);
+      if (!bin) return fail(404, 'image missing for that version');
       return new Response(bin, {
         headers: {
           'content-type': 'application/octet-stream',
           'content-length': String(bin.byteLength),
+          'x-fw-version': meta.version,
+          'x-fw-sha256': meta.sha256,
           'access-control-allow-origin': '*',
+          'access-control-expose-headers': 'x-fw-version, x-fw-sha256',
           'cache-control': 'no-cache',
         },
       });
-    }
-
-    if (id === 'meta') {
-      return meta
-        ? json(meta, { headers: { 'access-control-allow-origin': '*' } })
-        : fail(404, 'no firmware published yet');
     }
 
     // Hand-supplied image from the settings page. Authenticated with a device's
@@ -197,14 +207,17 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
 
-      await putFirmwareBin(env, bin);
-      await putFirmwareMeta(env, {
-        version: (url.searchParams.get('v') || 'custom').slice(0, 32),
-        sha256,
-        size: bin.byteLength,
-        source: 'upload',
-        uploadedAt: Math.floor(Date.now() / 1000),
-      });
+      await publishFirmware(
+        env,
+        {
+          version: (url.searchParams.get('v') || 'custom').slice(0, 32),
+          sha256,
+          size: bin.byteLength,
+          source: 'upload',
+          uploadedAt: Math.floor(Date.now() / 1000),
+        },
+        bin,
+      );
       return json({ ok: true, sha256, size: bin.byteLength },
         { headers: { 'access-control-allow-origin': '*' } });
     }
@@ -277,7 +290,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   }
 
   if (resource === 'status' && req.method === 'GET') {
-    const [status, fw] = await Promise.all([getStatus(env, id), getFirmwareMeta(env)]);
+    const [status, fw] = await Promise.all([getStatus(env, id), getFirmwareIndex(env)]);
     return json(
       { device: status, firmware: fw },
       { headers: { 'access-control-allow-origin': '*' } },

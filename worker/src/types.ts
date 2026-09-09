@@ -98,6 +98,12 @@ export interface FirmwareMeta {
   uploadedAt: number;
 }
 
+/** Every published build, so the settings page can offer a choice. */
+export interface FirmwareIndex {
+  latest: string;
+  versions: FirmwareMeta[];
+}
+
 export interface DeviceStatus {
   fwVersion: string | null;
   lastSeen: number;

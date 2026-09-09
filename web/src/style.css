@@ -107,3 +107,13 @@ a:hover { text-decoration: underline; }
 .adv summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .adv > *:not(summary) { margin-top: 10px; }
 esp-web-install-button { display: block; }
+
+.bar { height: 6px; background: #0f1317; border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
+.bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }
+.log {
+  margin: 0; max-height: 190px; overflow: auto;
+  background: #0b0e12; border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 11px; font-size: 11px; line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #9AA5B1; white-space: pre-wrap; word-break: break-all;
+}

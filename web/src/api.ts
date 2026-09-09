@@ -70,11 +70,23 @@ export interface FirmwareMeta {
   uploadedAt: number;
 }
 
+export interface FirmwareIndex {
+  latest: string;
+  versions: FirmwareMeta[];
+}
+
 export const getStatus = (s: Session) =>
   call<{
     device: { fwVersion: string | null; lastSeen: number } | null;
-    firmware: FirmwareMeta | null;
+    firmware: FirmwareIndex | null;
   }>(s, 'status');
+
+/** Fetch a published image for flashing. */
+export async function fetchFirmware(version: string): Promise<ArrayBuffer> {
+  const res = await fetch(`/api/firmware/merged.bin?v=${encodeURIComponent(version)}`);
+  if (!res.ok) throw new Error(`could not download ${version} (${res.status})`);
+  return res.arrayBuffer();
+}
 
 /** Upload a hand-supplied merged image. The body is the binary itself. */
 export async function uploadFirmware(s: Session, file: File, version: string) {

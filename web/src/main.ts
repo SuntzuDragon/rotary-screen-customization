@@ -1,6 +1,5 @@
-import 'esp-web-tools';
-
 import * as api from './api';
+import { flashFirmware } from './flash';
 import { connect, provision, serialSupported, type Connection, type Ssid } from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
 import type { DeckId, DeviceConfig, DevicePayload } from './types';
@@ -332,8 +331,8 @@ async function configView(session: api.Session) {
       note(
         detail ??
           (present
-            ? 'Connected. Private repos and your own rate limit are in use.'
-            : 'Optional. Without one, public stats are fetched with the built-in token.'),
+            ? 'Using your token — private repos included, and requests count against your own rate limit.'
+            : "Right now this uses the owner's token, so only public data is visible."),
         present ? 'ok' : 'info',
       ),
     );
@@ -377,37 +376,71 @@ async function configView(session: api.Session) {
 
 
   /* firmware over USB */
+  const fwSelect = el('select', { class: 'input' }) as HTMLSelectElement;
   const fwStatus = el('div', { class: 'status' });
+  const fwBar = el('div', { class: 'bar-fill' });
+  const fwBarWrap = el('div', { class: 'bar' }, fwBar);
+  fwBarWrap.hidden = true;
+  const fwLog = el('pre', { class: 'log' });
+  const fwLogBox = el(
+    'details',
+    { class: 'adv' },
+    el('summary', {}, 'Flashing log'),
+    fwLog,
+  );
+  const flashBtn = el('button', { class: 'primary' }, 'Flash over USB');
   const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
   const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
 
-  // esp-web-tools drives the whole flash over Web Serial from its own manifest.
-  const installBtn = document.createElement('esp-web-install-button');
-  installBtn.setAttribute('manifest', '/api/firmware/manifest.json');
-  const installSlot = el('button', { class: 'primary' }, 'Flash firmware over USB');
-  installSlot.setAttribute('slot', 'activate');
-  const unsupported = el('span', { slot: 'unsupported', class: 'note note-err' },
-    'This browser has no Web Serial — use desktop Chrome, Edge, or Opera.');
-  installBtn.append(installSlot, unsupported);
+  let runningVersion: string | null = null;
+
+  const logLine = (line: string) => {
+    // esptool-js emits partial writes and \r-based progress; keep the tail only.
+    fwLog.textContent = `${(fwLog.textContent ?? '') + line}`.slice(-6000);
+    fwLog.scrollTop = fwLog.scrollHeight;
+  };
 
   const paintFirmware = async () => {
     try {
       const { device, firmware } = await api.getStatus(session);
-      const running = device?.fwVersion ?? 'unknown';
-      if (!firmware) {
+      runningVersion = device?.fwVersion ?? null;
+      const running = runningVersion ?? 'unknown';
+
+      const versions = firmware?.versions ?? [];
+      if (versions.length === 0) {
+        fwSelect.replaceChildren(el('option', { value: '' }, 'nothing published yet'));
+        flashBtn.disabled = true;
         fwStatus.replaceChildren(
-          note(`Running ${running}. No firmware published yet — tag a release or upload a .bin below.`),
+          note(`Running ${running}. No builds published — tag a release or upload a .bin below.`),
         );
-        installSlot.disabled = true;
         return;
       }
-      installSlot.disabled = false;
-      const same = firmware.version === running;
+
+      flashBtn.disabled = false;
+      const keep = fwSelect.value;
+      fwSelect.replaceChildren(
+        ...versions.map((v) => {
+          const when = new Date(v.uploadedAt * 1000).toISOString().slice(0, 10);
+          const tags = [
+            v.version === firmware?.latest ? 'latest' : '',
+            v.version === runningVersion ? 'installed' : '',
+            v.source,
+          ].filter(Boolean);
+          return el(
+            'option',
+            { value: v.version },
+            `${v.version} — ${when} (${tags.join(', ')})`,
+          );
+        }),
+      );
+      fwSelect.value = keep && versions.some((v) => v.version === keep) ? keep : firmware!.latest;
+
+      const upToDate = runningVersion === firmware?.latest;
       fwStatus.replaceChildren(
         note(
-          `Running ${running} · available ${firmware.version} (${(firmware.size / 1024).toFixed(0)} KB, ${firmware.source})` +
-            (same ? ' — up to date.' : ' — an update is available.'),
-          same ? 'ok' : 'info',
+          `Running ${running} · latest ${firmware?.latest}` +
+            (upToDate ? ' — up to date.' : ' — a newer build is available.'),
+          upToDate ? 'ok' : 'info',
         ),
       );
     } catch (err) {
@@ -415,6 +448,45 @@ async function configView(session: api.Session) {
     }
   };
   void paintFirmware();
+
+  flashBtn.onclick = async () => {
+    const version = fwSelect.value;
+    if (!version) return;
+    flashBtn.disabled = true;
+    fwLog.textContent = '';
+    fwLogBox.open = true;
+    fwBarWrap.hidden = false;
+    fwBar.style.width = '0%';
+    fwStatus.replaceChildren(note(`Downloading ${version}…`));
+
+    try {
+      const image = await api.fetchFirmware(version);
+      logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
+      fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
+
+      await flashFirmware(image, {
+        log: logLine,
+        progress: (f) => {
+          fwBar.style.width = `${Math.round(f * 100)}%`;
+          fwStatus.replaceChildren(note(`Writing… ${Math.round(f * 100)}%`));
+        },
+      });
+
+      fwBar.style.width = '100%';
+      fwStatus.replaceChildren(
+        note('Flashed. The device is restarting — Wi-Fi settings were kept.', 'ok'),
+      );
+      // Give it time to boot and report its new version.
+      setTimeout(() => void paintFirmware(), 12000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logLine(`\nFAILED: ${msg}\n`);
+      fwStatus.replaceChildren(
+        note(`${msg} — the device may need flashing again before it boots.`, 'err'),
+      );
+    }
+    flashBtn.disabled = false;
+  };
 
   fwUpload.onclick = async () => {
     const file = fwFile.files?.[0];
@@ -477,8 +549,25 @@ async function configView(session: api.Session) {
           el(
             'p',
             { class: 'muted' },
-            'Add a personal access token to include private repos and use your own ' +
-              'rate limit. Stored encrypted; it is never sent to the device.',
+            "Stats are fetched with the owner's GitHub token by default, which only " +
+              'sees public data. Add your own to include private repos and use your ' +
+              'own rate limit instead.',
+          ),
+          el(
+            'p',
+            { class: 'muted' },
+            'Create one at ',
+            el(
+              'a',
+              {
+                href: 'https://github.com/settings/personal-access-tokens/new',
+                target: '_blank',
+                rel: 'noreferrer',
+              },
+              'github.com/settings/personal-access-tokens',
+            ),
+            ' — read-only is enough. It is encrypted at rest, checked against GitHub ' +
+              'before being saved, and never sent to the device.',
           ),
           tokenInput,
           el('div', { class: 'row' }, tokenSave, tokenRemove),
@@ -491,12 +580,16 @@ async function configView(session: api.Session) {
           el(
             'p',
             { class: 'warn' },
-            'Flashing replaces the software on the device over USB. It must stay ' +
-              'plugged in until it finishes. If a flash fails the device may not ' +
-              'boot until you flash it again — Wi-Fi settings are preserved.',
+            'Flashing replaces the software on the device over USB. Keep it plugged ' +
+              'in until it finishes. If a flash fails the device may not boot until ' +
+              'you flash it again — your Wi-Fi settings are kept either way.',
           ),
+          el('label', { class: 'lbl' }, 'Version'),
+          fwSelect,
+          flashBtn,
+          fwBarWrap,
           fwStatus,
-          installBtn,
+          fwLogBox,
           el('details', { class: 'adv' },
             el('summary', {}, 'Publish your own build'),
             el('p', { class: 'muted' },
