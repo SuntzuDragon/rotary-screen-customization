@@ -136,8 +136,18 @@ void initLvgl() {
 uint32_t gLastPoll = 0;
 bool gRegistered = false;
 
-/** Pump LVGL so the screen keeps updating while the network blocks. */
-void uiYield() { lv_timer_handler(); }
+/**
+ * Keep the device responsive while the network blocks.
+ *
+ * Improv matters as much as the screen here: opening the serial port resets the
+ * board, so the browser starts probing for Improv exactly while setup() is busy
+ * joining Wi-Fi and registering. Without pumping it from here the device stays
+ * silent for several seconds and the page reports "no Improv device answered".
+ */
+void uiYield() {
+  lv_timer_handler();
+  gImprov.loop();
+}
 
 bool bringUpNetwork(const String& ssid, const String& pass) {
   ui::showStatus("Connecting", ssid.c_str());
@@ -222,6 +232,13 @@ void loadDemoStats() {
  */
 void setup() {
   Serial.begin(115200);
+  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
+  // port open without reading (a browser that opened it for Improv and then
+  // gave up) stalls Serial.write indefinitely, which freezes the whole device
+  // mid-boot. Dropping log bytes is always preferable to hanging.
+#if ARDUINO_USB_MODE
+  Serial.setTxTimeoutMs(0);
+#endif
   delay(300);
   pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
   pinMode(PIN_PWR_EN2, OUTPUT); digitalWrite(PIN_PWR_EN2, HIGH);
@@ -260,6 +277,13 @@ void loop() {
  */
 void setup() {
   Serial.begin(115200);
+  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
+  // port open without reading (a browser that opened it for Improv and then
+  // gave up) stalls Serial.write indefinitely, which freezes the whole device
+  // mid-boot. Dropping log bytes is always preferable to hanging.
+#if ARDUINO_USB_MODE
+  Serial.setTxTimeoutMs(0);
+#endif
   delay(300);
   Serial.println("[diag] backlight-only build: GPIO46 1s on / 1s off, forever");
   // Board power rails must come up before anything else -- see board_pins.h.
@@ -285,6 +309,13 @@ void loop() {
 
 void setup() {
   Serial.begin(115200);
+  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
+  // port open without reading (a browser that opened it for Improv and then
+  // gave up) stalls Serial.write indefinitely, which freezes the whole device
+  // mid-boot. Dropping log bytes is always preferable to hanging.
+#if ARDUINO_USB_MODE
+  Serial.setTxTimeoutMs(0);
+#endif
   delay(300);  // let the USB CDC host attach before the first line
   Serial.printf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
                 static_cast<int>(esp_reset_reason()));
