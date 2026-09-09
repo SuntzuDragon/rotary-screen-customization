@@ -1,3 +1,4 @@
+import { applyAccent, resetAccent } from './accent';
 import * as api from './api';
 import { flashFirmware } from './flash';
 import {
@@ -10,7 +11,7 @@ import {
   type Ssid,
 } from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
-import type { DeckId, DeviceConfig, DevicePayload } from './types';
+import { DEFAULT_ACCENT, type DeckId, type DeviceConfig, type DevicePayload } from './types';
 
 const DECK_LABEL: Record<DeckId, string> = {
   summary: 'Summary dial',
@@ -300,6 +301,8 @@ function firmwareCard(session: api.Session | null) {
 
 function landing() {
   subtitle.textContent = 'Plug the knob into this computer to set it up';
+  // No device in hand yet, so nothing to match: back to the shipped colour.
+  resetAccent();
 
   const btn = el('button', { class: 'primary' }, 'Connect device over USB');
   const status = el('div', { class: 'status' });
@@ -495,6 +498,8 @@ async function configView(session: api.Session) {
   let payload: DevicePayload | null = null;
   try {
     config = await api.getConfig(session);
+    // Wear the device's colour from the first paint, not from the first edit.
+    applyAccent(config.theme.accent);
   } catch (err) {
     const retry = el('button', { class: 'ghost' }, 'Start over');
     retry.onclick = () => {
@@ -606,9 +611,27 @@ async function configView(session: api.Session) {
     }
   };
 
+  /* theme -- declared here because refreshDirty below drives the reset button */
+  const accent = el('input', { type: 'color', class: 'swatch' }) as HTMLInputElement;
+  accent.value = config.theme.accent;
+  accent.oninput = () => edit({ theme: { ...draft.theme, accent: accent.value } });
+
+  // A native colour picker has no way back to where you started, and the
+  // default is not a colour anyone would find again by eye.
+  const accentReset = el('button', { class: 'ghost' }, 'Reset') as HTMLButtonElement;
+  accentReset.onclick = () => {
+    accent.value = DEFAULT_ACCENT;
+    edit({ theme: { ...draft.theme, accent: DEFAULT_ACCENT } });
+  };
+  const accentRow = el('div', { class: 'swatch-row' }, accent, accentReset);
+
   const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
 
   const refreshDirty = () => {
+    // The page wears the colour being edited, not the one last pushed: the
+    // point is to see the choice, and the preview alone is 240px of it.
+    applyAccent(draft.theme.accent);
+    accentReset.disabled = draft.theme.accent.toLowerCase() === DEFAULT_ACCENT.toLowerCase();
     pushBtn.disabled = !dirty();
     pushNote.replaceChildren(
       dirty()
@@ -732,11 +755,6 @@ async function configView(session: api.Session) {
       );
     })
     .catch(() => repoList.replaceChildren(note('Could not load repos.', 'err')));
-
-  /* theme */
-  const accent = el('input', { type: 'color', class: 'swatch' }) as HTMLInputElement;
-  accent.value = config.theme.accent;
-  accent.oninput = () => edit({ theme: { ...draft.theme, accent: accent.value } });
 
   const bright = el('input', {
     type: 'range',
@@ -891,7 +909,7 @@ async function configView(session: api.Session) {
           { class: 'card' },
           el('h2', {}, 'Look'),
           el('label', { class: 'lbl' }, 'Accent'),
-          accent,
+          accentRow,
           el('label', { class: 'lbl' }, 'Brightness'),
           el('div', { class: 'row' }, bright, brightLabel),
           el('label', { class: 'lbl' }, 'Auto-advance'),

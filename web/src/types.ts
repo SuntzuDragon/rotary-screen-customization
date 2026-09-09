@@ -1,4 +1,8 @@
 /** Mirrors worker/src/types.ts DevicePayload. Keep the two in step. */
+
+/** Matches DEFAULT_THEME.accent in worker/src/types.ts. */
+export const DEFAULT_ACCENT = '#F74C00';
+
 export interface Theme {
   accent: string;
   bg: string;

@@ -7,6 +7,12 @@
   --fg: #e8edf2;
   --muted: #8b97a5;
   --accent: #f74c00;
+  /* Derived from --accent at runtime (see accent.ts); these are the defaults
+     so the page is correct before any script runs. */
+  --accent-ink: #ffffff;
+  --accent-text: #ff7a45;
+  --accent-soft: rgba(247, 76, 0, 0.09);
+  --accent-edge: rgba(247, 76, 0, 0.28);
   color-scheme: dark;
 }
 
@@ -67,7 +73,7 @@ button {
   border: 1px solid transparent; cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
-.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 6px; }
+.primary { background: var(--accent); color: var(--accent-ink); width: 100%; margin-top: 6px; }
 .ghost { background: transparent; border-color: var(--line); color: var(--fg); }
 
 .input, .range, .swatch {
@@ -76,6 +82,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px;
 }
 .swatch { height: 40px; padding: 4px; }
+.swatch-row { display: flex; gap: 8px; align-items: stretch; }
+.swatch-row .swatch { flex: 1; }
+.swatch-row button { white-space: nowrap; padding: 9px 13px; }
 .range { padding: 0; border: none; background: none; accent-color: var(--accent); }
 .lbl { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
 
@@ -91,14 +100,14 @@ button:disabled { opacity: 0.5; cursor: default; }
 .note-ok { color: #66d19e; }
 .note-info { color: var(--muted); }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--accent-text); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .warn {
   font-size: 13px; line-height: 1.45;
-  color: #ffcf9e;
-  background: rgba(247, 76, 0, 0.09);
-  border: 1px solid rgba(247, 76, 0, 0.28);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-edge);
   border-radius: 9px;
   padding: 10px 12px;
   margin: 0 0 12px;
