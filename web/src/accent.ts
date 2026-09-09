@@ -92,9 +92,9 @@ export function applyAccent(hex: string) {
   // luminance 0.3, which is the threshold here.
   root.setProperty('--accent-ink', luminance(rgb) > 0.3 ? INK_DARK : '#ffffff');
   root.setProperty('--accent-text', toHex(readableOn(rgb, PANEL)));
-  // Tint for the warning panel, which was a hardcoded orange wash.
-  root.setProperty('--accent-soft', `rgba(${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)}, 0.09)`);
-  root.setProperty('--accent-edge', `rgba(${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)}, 0.28)`);
+  // The flashing warning is deliberately NOT themed. Its wash used to be an
+  // orange that happened to match the accent; tinting it with the chosen
+  // colour turned a warning green, which reads as reassurance.
 }
 
 /** Back to the colour a device ships with. */

@@ -11,8 +11,10 @@
      so the page is correct before any script runs. */
   --accent-ink: #ffffff;
   --accent-text: #ff7a45;
-  --accent-soft: rgba(247, 76, 0, 0.09);
-  --accent-edge: rgba(247, 76, 0, 0.28);
+  /* Warnings keep their own palette whatever the accent is. */
+  --warn: #ffcf9e;
+  --warn-bg: rgba(255, 168, 60, 0.09);
+  --warn-line: rgba(255, 168, 60, 0.3);
   color-scheme: dark;
 }
 
@@ -105,9 +107,9 @@ a:hover { text-decoration: underline; }
 
 .warn {
   font-size: 13px; line-height: 1.45;
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-edge);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
   border-radius: 9px;
   padding: 10px 12px;
   margin: 0 0 12px;
