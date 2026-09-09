@@ -178,15 +178,23 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     }
 
     if (id === 'merged.bin') {
-      if (!meta) return fail(404, 'no such firmware version');
-      const bin = await getFirmwareBin(env, meta.version);
-      if (!bin) return fail(404, 'image missing for that version');
+      // Serve by blob presence, not by index membership.
+      //
+      // The index decides what the dropdown *offers*; it should not gate what
+      // can be fetched. Coupling them made the publish readiness check
+      // circular: CI asked this endpoint whether the image was downloadable
+      // yet, but the endpoint answered 404 because the index row it was
+      // waiting to write did not exist.
+      const version = meta?.version ?? wanted;
+      if (!version) return fail(404, 'no firmware published yet');
+      const bin = await getFirmwareBin(env, version);
+      if (!bin) return fail(404, 'image not available for that version');
       return new Response(bin, {
         headers: {
           'content-type': 'application/octet-stream',
           'content-length': String(bin.byteLength),
-          'x-fw-version': meta.version,
-          'x-fw-sha256': meta.sha256,
+          'x-fw-version': version,
+          'x-fw-sha256': meta?.sha256 ?? '',
           'access-control-allow-origin': '*',
           'access-control-expose-headers': 'x-fw-version, x-fw-sha256',
           'cache-control': 'no-cache',
