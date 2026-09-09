@@ -1,4 +1,4 @@
-import { ESPLoader, Transport } from 'esptool-js';
+import { ESPLoader, Transport, UsbJtagSerialReset } from 'esptool-js';
 
 export interface FlashHooks {
   log: (line: string) => void;
@@ -89,8 +89,20 @@ export async function flashFirmware(
       },
     });
 
-    hooks.log('write complete, resetting');
-    await loader.after();
+    hooks.log('write complete, resetting\n');
+
+    // This board talks over the ESP32-S3's built-in USB-Serial/JTAG peripheral,
+    // which needs its own reset sequence. esptool-js's default hard reset
+    // toggles RTS the way an external USB-UART bridge expects; on this chip the
+    // write succeeds, the log says "hard resetting", and the device simply
+    // never starts -- a dead board with a clean flash log.
+    try {
+      await new UsbJtagSerialReset(transport).reset();
+      hooks.log('reset via USB-JTAG sequence\n');
+    } catch (err) {
+      hooks.log(`USB-JTAG reset failed (${err}); falling back\n`);
+      await loader.after().catch(() => {});
+    }
   } finally {
     // Always hand the port back, or the next attempt cannot open it.
     await transport.disconnect().catch(() => {});

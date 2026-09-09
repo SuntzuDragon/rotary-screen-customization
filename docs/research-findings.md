@@ -352,3 +352,24 @@ Reading the log without any hardware attached:
 ```bash
 curl -s https://hdog.imcb.dev/api/log/<deviceId> -H "x-device-key: <secret>" | jq -r '.lines[]'
 ```
+
+## 16. Flashing needs the USB-JTAG reset sequence, not the classic one
+
+After a browser flash the log ended with `Hard resetting via RTS pin...` and the
+device stayed dark. The flash itself was perfect — every region written and
+verified — but the chip never restarted.
+
+The tell was in the diagnosis order: a *passive* serial read (one that does not
+assert DTR/RTS) returned **nothing at all**, and the device only came back once
+a reset was asserted manually. So it was halted, not crashing and not
+boot-looping.
+
+Cause: this board uses the ESP32-S3's built-in **USB-Serial/JTAG** peripheral.
+esptool-js's default hard reset toggles RTS the way an external USB-UART bridge
+(CH340, CP2102) expects, and that sequence does nothing here. esptool-js exports
+`UsbJtagSerialReset` for exactly this case; the flasher now uses it and falls
+back to `loader.after()` if it throws.
+
+This also explains an earlier "black screen after flashing" that was originally
+attributed to the NVS wipe. The NVS wipe was real and separate (section 11) —
+the dark screen after it was this.
