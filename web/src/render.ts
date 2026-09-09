@@ -16,6 +16,11 @@ export function widthAt(y: number, pad = 4): number {
   return 2 * Math.sqrt(R * R - dy * dy) - pad * 2;
 }
 
+// The dots are the one constant across every screen, so they own a reserved
+// band at the bezel and nothing else may enter it.
+const DOTS_R = R - 9;
+const CONTENT_R = DOTS_R - 14;
+
 const TAU = Math.PI * 2;
 const TOP = -Math.PI / 2; // 12 o'clock
 
@@ -77,7 +82,7 @@ function positionDots(ctx: Ctx2D, cards: Card[], cursor: number, accent: string)
   });
   const span = run || 1;
   const spread = Math.min(TAU * 0.34, span * 0.085);
-  const radius = R - 9;
+  const radius = DOTS_R;
 
   cards.forEach((c, i) => {
     const t = offset[i]! / span - 0.5;
@@ -129,8 +134,8 @@ function deckSummary(ctx: Ctx2D, d: DevicePayload) {
   const start = Date.UTC(now.getUTCFullYear(), 0, 1);
   const end = Date.UTC(now.getUTCFullYear() + 1, 0, 1);
   const frac = (Date.now() - start) / (end - start);
-  arc(ctx, R - 8, 0, TAU, 3, 'rgba(255,255,255,0.07)');
-  arc(ctx, R - 8, TOP, TOP + TAU * frac, 3, accent);
+  arc(ctx, CONTENT_R, 0, TAU, 3, 'rgba(255,255,255,0.07)');
+  arc(ctx, CONTENT_R, TOP, TOP + TAU * frac, 3, accent);
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';

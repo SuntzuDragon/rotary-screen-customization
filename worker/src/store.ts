@@ -1,4 +1,11 @@
-import type { DeviceConfig, DerivedEvent, Env, Snapshot } from './types';
+import type {
+  DeviceConfig,
+  DerivedEvent,
+  DeviceStatus,
+  Env,
+  FirmwareMeta,
+  Snapshot,
+} from './types';
 import { ALL_DECKS, defaultConfig } from './types';
 
 const cfgKey = (id: string) => `dev:${id}:cfg`;
@@ -64,6 +71,28 @@ export const putUserToken = (env: Env, id: string, encrypted: string) =>
 
 export const getUserToken = (env: Env, id: string) => env.DEVICES.get(patKey(id), 'text');
 export const clearUserToken = (env: Env, id: string) => env.DEVICES.delete(patKey(id));
+
+/* ---------- firmware ---------- */
+
+// The merged image lives in KV rather than R2: ~1.4MB against a 25MB per-value
+// limit, and it keeps the whole deploy to a single binding.
+const FW_BIN = 'fw:bin';
+const FW_META = 'fw:meta';
+const statusKey = (id: string) => `dev:${id}:status`;
+
+export const getFirmwareMeta = (env: Env) => getJSON<FirmwareMeta>(env, FW_META);
+
+export const putFirmwareMeta = (env: Env, m: FirmwareMeta) =>
+  env.DEVICES.put(FW_META, JSON.stringify(m));
+
+export const getFirmwareBin = (env: Env) => env.DEVICES.get(FW_BIN, 'arrayBuffer');
+
+export const putFirmwareBin = (env: Env, bin: ArrayBuffer) => env.DEVICES.put(FW_BIN, bin);
+
+export const getStatus = (env: Env, id: string) => getJSON<DeviceStatus>(env, statusKey(id));
+
+export const putStatus = (env: Env, id: string, s: DeviceStatus) =>
+  env.DEVICES.put(statusKey(id), JSON.stringify(s));
 
 /** Device ids known to the cron job. */
 export async function listDeviceIds(env: Env): Promise<string[]> {

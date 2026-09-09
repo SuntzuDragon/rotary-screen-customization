@@ -82,6 +82,27 @@ export interface DerivedEvent {
   at: number;
 }
 
+/* ---------- firmware / OTA ---------- */
+
+/**
+ * Firmware is flashed over USB from the browser (esp-web-tools), not over the
+ * air. A merged image covering 0x0 onward means the manifest has a single part
+ * and there is no partition arithmetic in the browser.
+ */
+export interface FirmwareMeta {
+  version: string;
+  sha256: string;
+  size: number;
+  /** 'ci' for a tagged build, 'upload' for a hand-supplied binary. */
+  source: 'ci' | 'upload';
+  uploadedAt: number;
+}
+
+export interface DeviceStatus {
+  fwVersion: string | null;
+  lastSeen: number;
+}
+
 /* ---------- device payload (short keys, ~3KB budget) ---------- */
 
 export interface PayloadRepo {

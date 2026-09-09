@@ -90,3 +90,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 .note-err { color: #ff8a6a; }
 .note-ok { color: #66d19e; }
 .note-info { color: var(--muted); }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.warn {
+  font-size: 13px; line-height: 1.45;
+  color: #ffcf9e;
+  background: rgba(247, 76, 0, 0.09);
+  border: 1px solid rgba(247, 76, 0, 0.28);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+.adv { margin-top: 14px; }
+.adv summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.adv > *:not(summary) { margin-top: 10px; }
+esp-web-install-button { display: block; }

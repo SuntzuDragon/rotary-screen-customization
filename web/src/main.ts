@@ -1,3 +1,5 @@
+import 'esp-web-tools';
+
 import * as api from './api';
 import { connect, provision, serialSupported, type Connection, type Ssid } from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
@@ -8,6 +10,8 @@ const DECK_LABEL: Record<DeckId, string> = {
   repos: 'Repo cards',
   activity: 'Activity ticker',
 };
+
+const REPO_URL = 'https://github.com/SuntzuDragon/rotary-screen-customization';
 
 const view = document.getElementById('view')!;
 const subtitle = document.getElementById('subtitle')!;
@@ -371,6 +375,64 @@ async function configView(session: api.Session) {
     tokenRemove.disabled = false;
   };
 
+
+  /* firmware over USB */
+  const fwStatus = el('div', { class: 'status' });
+  const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
+  const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
+
+  // esp-web-tools drives the whole flash over Web Serial from its own manifest.
+  const installBtn = document.createElement('esp-web-install-button');
+  installBtn.setAttribute('manifest', '/api/firmware/manifest.json');
+  const installSlot = el('button', { class: 'primary' }, 'Flash firmware over USB');
+  installSlot.setAttribute('slot', 'activate');
+  const unsupported = el('span', { slot: 'unsupported', class: 'note note-err' },
+    'This browser has no Web Serial — use desktop Chrome, Edge, or Opera.');
+  installBtn.append(installSlot, unsupported);
+
+  const paintFirmware = async () => {
+    try {
+      const { device, firmware } = await api.getStatus(session);
+      const running = device?.fwVersion ?? 'unknown';
+      if (!firmware) {
+        fwStatus.replaceChildren(
+          note(`Running ${running}. No firmware published yet — tag a release or upload a .bin below.`),
+        );
+        installSlot.disabled = true;
+        return;
+      }
+      installSlot.disabled = false;
+      const same = firmware.version === running;
+      fwStatus.replaceChildren(
+        note(
+          `Running ${running} · available ${firmware.version} (${(firmware.size / 1024).toFixed(0)} KB, ${firmware.source})` +
+            (same ? ' — up to date.' : ' — an update is available.'),
+          same ? 'ok' : 'info',
+        ),
+      );
+    } catch (err) {
+      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+  };
+  void paintFirmware();
+
+  fwUpload.onclick = async () => {
+    const file = fwFile.files?.[0];
+    if (!file) {
+      fwStatus.replaceChildren(note('Choose a merged .bin first.', 'err'));
+      return;
+    }
+    fwUpload.disabled = true;
+    fwStatus.replaceChildren(note(`Uploading ${(file.size / 1024).toFixed(0)} KB…`));
+    try {
+      await api.uploadFirmware(session, file, `custom-${new Date().toISOString().slice(0, 10)}`);
+      await paintFirmware();
+    } catch (err) {
+      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+    fwUpload.disabled = false;
+  };
+
   const refreshBtn = el('button', { class: 'ghost' }, 'Refresh from GitHub now');
   const refreshStatus = el('span', { class: 'tag' }, '');
   refreshBtn.onclick = async () => {
@@ -422,7 +484,33 @@ async function configView(session: api.Session) {
           el('div', { class: 'row' }, tokenSave, tokenRemove),
           tokenStatus,
         ),
+        el(
+          'section',
+          { class: 'card' },
+          el('h2', {}, 'Firmware'),
+          el(
+            'p',
+            { class: 'warn' },
+            'Flashing replaces the software on the device over USB. It must stay ' +
+              'plugged in until it finishes. If a flash fails the device may not ' +
+              'boot until you flash it again — Wi-Fi settings are preserved.',
+          ),
+          fwStatus,
+          installBtn,
+          el('details', { class: 'adv' },
+            el('summary', {}, 'Publish your own build'),
+            el('p', { class: 'muted' },
+              'A merged image starting at offset 0 — the firmware workflow produces one, ' +
+              'or build locally and merge with esptool.'),
+            fwFile,
+            fwUpload),
+        ),
         el('section', { class: 'card' }, el('div', { class: 'row' }, refreshBtn, refreshStatus)),
+        el(
+          'p',
+          { class: 'muted center' },
+          el('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer' }, 'source on GitHub'),
+        ),
       ),
     ),
   );

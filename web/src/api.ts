@@ -62,6 +62,32 @@ export const getRepos = (s: Session) =>
 
 export const refresh = (s: Session) => call<{ ok: true }>(s, 'refresh', { method: 'POST' });
 
+export interface FirmwareMeta {
+  version: string;
+  sha256: string;
+  size: number;
+  source: 'ci' | 'upload';
+  uploadedAt: number;
+}
+
+export const getStatus = (s: Session) =>
+  call<{
+    device: { fwVersion: string | null; lastSeen: number } | null;
+    firmware: FirmwareMeta | null;
+  }>(s, 'status');
+
+/** Upload a hand-supplied merged image. The body is the binary itself. */
+export async function uploadFirmware(s: Session, file: File, version: string) {
+  const res = await fetch(
+    `/api/firmware/upload?d=${encodeURIComponent(s.id)}&k=${encodeURIComponent(s.key)}` +
+      `&v=${encodeURIComponent(version)}`,
+    { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' } },
+  );
+  const body = (await res.json().catch(() => null)) as { error?: string; sha256?: string } | null;
+  if (!res.ok) throw new Error(body?.error ?? `${res.status}`);
+  return body as { sha256: string; size: number };
+}
+
 export const tokenStatus = (s: Session) => call<{ present: boolean }>(s, 'token');
 
 export const setToken = (s: Session, token: string) =>

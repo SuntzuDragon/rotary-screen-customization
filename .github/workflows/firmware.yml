@@ -1,0 +1,85 @@
+name: Publish firmware
+
+# Firmware is flashed over USB from the settings page, not over the air, so this
+# job's only output is a merged image plus metadata in KV for esp-web-tools to
+# fetch. Tag a release to publish: git tag v0.2.0 && git push --tags
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label to publish as'
+        required: true
+        default: 'dev'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/.pio
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+
+      - name: Install toolchain
+        run: pip install --quiet platformio esptool
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        working-directory: firmware
+        run: |
+          pio run -e crowpanel128 \
+            --project-option="build_flags=\${env:crowpanel128.build_flags} -DFW_VERSION='\"${{ steps.ver.outputs.value }}\"'"
+
+      # One merged image from 0x0 means the browser flasher needs a single part
+      # and no partition offset arithmetic.
+      - name: Merge image
+        working-directory: firmware/.pio/build/crowpanel128
+        run: |
+          BOOT_APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -1)
+          esptool --chip esp32s3 merge-bin -o merged.bin \
+            --flash-mode dio --flash-freq 80m --flash-size 16MB \
+            0x0 bootloader.bin \
+            0x8000 partitions.bin \
+            0xe000 "$BOOT_APP0" \
+            0x10000 firmware.bin
+          ls -l merged.bin
+
+      - name: Publish to the Worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          BIN=../firmware/.pio/build/crowpanel128/merged.bin
+          SHA=$(sha256sum "$BIN" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$BIN")
+          npm ci
+          npx wrangler kv key put fw:bin --binding DEVICES --remote --path "$BIN"
+          printf '{"version":"%s","sha256":"%s","size":%s,"source":"ci","uploadedAt":%s}' \
+            "${{ steps.ver.outputs.value }}" "$SHA" "$SIZE" "$(date +%s)" > meta.json
+          npx wrangler kv key put fw:meta --binding DEVICES --remote --path meta.json
+          echo "published ${{ steps.ver.outputs.value }} ($SIZE bytes, $SHA)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.ver.outputs.value }}
+          path: firmware/.pio/build/crowpanel128/merged.bin

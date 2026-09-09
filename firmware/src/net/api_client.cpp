@@ -110,6 +110,8 @@ Result poll(Stats& out) {
   if (!http.begin(client, url)) return Result::Failed;
 
   http.addHeader("x-device-key", settings::deviceSecret());
+  // Lets the settings page show running vs available firmware.
+  http.addHeader("x-fw-version", FW_VERSION);
   if (gEtag.length()) http.addHeader("If-None-Match", gEtag);
 
   const char* collect[] = {"ETag"};

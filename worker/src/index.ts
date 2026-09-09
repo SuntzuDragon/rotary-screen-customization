@@ -2,6 +2,12 @@ import { buildSnapshot, lastRateRemaining, verifyToken } from './github';
 import { buildPayload, diffSnapshots } from './payload';
 import {
   clearUserToken,
+  getFirmwareBin,
+  getFirmwareMeta,
+  putFirmwareBin,
+  putFirmwareMeta,
+  getStatus,
+  putStatus,
   ensureConfig,
   getAuth,
   getConfig,
@@ -125,6 +131,85 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (!resource) return fail(404, 'not found');
   if (resource === 'health') return json({ ok: true, rate: lastRateRemaining });
 
+  /*
+   * Firmware endpoints are unauthenticated on purpose: esp-web-tools fetches
+   * the manifest and image straight from the browser before any device exists
+   * to authenticate as. The image is a build artefact, not a secret.
+   */
+  if (resource === 'firmware') {
+    const meta = await getFirmwareMeta(env);
+
+    if (id === 'manifest.json') {
+      if (!meta) return fail(404, 'no firmware published yet');
+      return json(
+        {
+          name: 'Rotary Stats',
+          version: meta.version,
+          new_install_prompt_erase: false,
+          builds: [
+            {
+              chipFamily: 'ESP32-S3',
+              parts: [{ path: `${url.origin}/api/firmware/merged.bin`, offset: 0 }],
+            },
+          ],
+        },
+        { headers: { 'access-control-allow-origin': '*' } },
+      );
+    }
+
+    if (id === 'merged.bin') {
+      const bin = await getFirmwareBin(env);
+      if (!bin) return fail(404, 'no firmware published yet');
+      return new Response(bin, {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': String(bin.byteLength),
+          'access-control-allow-origin': '*',
+          'cache-control': 'no-cache',
+        },
+      });
+    }
+
+    if (id === 'meta') {
+      return meta
+        ? json(meta, { headers: { 'access-control-allow-origin': '*' } })
+        : fail(404, 'no firmware published yet');
+    }
+
+    // Hand-supplied image from the settings page. Authenticated with a device's
+    // own key, passed as query params since the body is the binary.
+    if (id === 'upload' && req.method === 'POST') {
+      const owner = url.searchParams.get('d') ?? '';
+      if (!/^[a-z0-9]{4,32}$/.test(owner)) return fail(400, 'bad device id');
+      if (!(await authorised(env, owner, req))) return fail(401, 'unauthorised');
+
+      const bin = await req.arrayBuffer();
+      if (bin.byteLength < 64 * 1024) return fail(400, 'that file is too small to be firmware');
+      if (bin.byteLength > 8 * 1024 * 1024) return fail(400, 'that file is too large');
+
+      // A merged ESP32 image starts with the 0xE9 magic byte.
+      if (new Uint8Array(bin)[0] !== 0xe9) {
+        return fail(400, 'not an ESP32 image (missing 0xE9 magic byte)');
+      }
+
+      const digest = await crypto.subtle.digest('SHA-256', bin);
+      const sha256 = [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      await putFirmwareBin(env, bin);
+      await putFirmwareMeta(env, {
+        version: (url.searchParams.get('v') || 'custom').slice(0, 32),
+        sha256,
+        size: bin.byteLength,
+        source: 'upload',
+        uploadedAt: Math.floor(Date.now() / 1000),
+      });
+      return json({ ok: true, sha256, size: bin.byteLength },
+        { headers: { 'access-control-allow-origin': '*' } });
+    }
+  }
+
   if (!id || !/^[a-z0-9]{4,32}$/.test(id)) return fail(400, 'bad device id');
 
   /* Trust-on-first-use registration: the device mints its own id + secret. */
@@ -157,6 +242,14 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
   /* Device poll. */
   if (resource === 'device' && !sub && req.method === 'GET') {
+    const reported = req.headers.get('x-fw-version');
+    ctx.waitUntil(
+      putStatus(env, id, {
+        fwVersion: reported ? reported.slice(0, 32) : null,
+        lastSeen: Math.floor(Date.now() / 1000),
+      }),
+    );
+
     const { payload } = await payloadFor(env, id);
     if (!payload) return fail(503, 'no data yet');
 
@@ -181,6 +274,14 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     return payload
       ? json(payload, { headers: { 'access-control-allow-origin': '*' } })
       : fail(503, 'no data yet');
+  }
+
+  if (resource === 'status' && req.method === 'GET') {
+    const [status, fw] = await Promise.all([getStatus(env, id), getFirmwareMeta(env)]);
+    return json(
+      { device: status, firmware: fw },
+      { headers: { 'access-control-allow-origin': '*' } },
+    );
   }
 
   if (resource === 'config') {

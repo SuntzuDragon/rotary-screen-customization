@@ -37,6 +37,14 @@ uint32_t gLastAdvance = 0;
 
 lv_color_t rgb(uint32_t v) { return lv_color_hex(v); }
 
+/**
+ * The position dots are the one constant across every screen, so they get a
+ * reserved band at the bezel and nothing else may enter it. kContentR is the
+ * largest radius any other element may use.
+ */
+constexpr lv_coord_t kDotsR = kR - 9;
+constexpr lv_coord_t kContentR = kDotsR - 14;
+
 /** Relative time rendered on-device from the NTP clock, never from the server. */
 void formatAgo(int64_t epoch, char* out, size_t cap) {
   if (epoch <= 0) {
@@ -125,10 +133,11 @@ void positionDots(lv_obj_t* parent, lv_coord_t radius) {
 /* ------------------------------- decks ------------------------------- */
 
 void buildSummary() {
-  // Bezel arc: progress through the calendar year, giving the contribution
-  // count a frame of reference.
+  // Year-progress arc, giving the contribution count a frame of reference.
+  // Sized to kContentR so it clears the dot band -- it used to sit at the same
+  // radius as the dots and cut straight through them.
   lv_obj_t* ring = lv_arc_create(gRoot);
-  lv_obj_set_size(ring, kSize - 10, kSize - 10);
+  lv_obj_set_size(ring, kContentR * 2, kContentR * 2);
   lv_obj_center(ring);
   lv_arc_set_rotation(ring, 270);
   lv_arc_set_bg_angles(ring, 0, 360);
@@ -333,7 +342,7 @@ void redraw() {
   }
 
   // Always the same radius: the dots must not move as you scroll.
-  positionDots(gRoot, kR - 9);
+  positionDots(gRoot, kDotsR);
 }
 
 }  // namespace
