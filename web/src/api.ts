@@ -57,7 +57,12 @@ export const getRepos = (s: Session) =>
 
 export const refresh = (s: Session) => call<{ ok: true }>(s, 'refresh', { method: 'POST' });
 
+export const tokenStatus = (s: Session) => call<{ present: boolean }>(s, 'token');
+
 export const setToken = (s: Session, token: string) =>
-  call<{ ok: true }>(s, 'token', { method: 'POST', body: JSON.stringify({ token }) });
+  call<{ ok: true; login: string }>(s, 'token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
 
 export const clearToken = (s: Session) => call<{ ok: true }>(s, 'token', { method: 'DELETE' });

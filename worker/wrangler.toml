@@ -2,6 +2,10 @@ name = "rotary-stats"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
+# Keep the workers.dev subdomain alive alongside the custom domain: it is a
+# useful fallback and lets the device be pointed somewhere while DNS settles.
+workers_dev = true
+
 # Custom domain. Wrangler creates the DNS record and cert on deploy, provided
 # the imcb.dev zone is in this Cloudflare account.
 routes = [

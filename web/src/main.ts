@@ -301,6 +301,68 @@ async function configView(session: api.Session) {
   };
   rot.onchange = () => save({ theme: { ...config.theme, rotSec: Number(rot.value) } });
 
+
+  /* optional personal GitHub token */
+  const tokenInput = el('input', {
+    class: 'input',
+    type: 'password',
+    placeholder: 'github_pat_...',
+    autocomplete: 'off',
+  }) as HTMLInputElement;
+  const tokenSave = el('button', { class: 'primary' }, 'Connect GitHub');
+  const tokenRemove = el('button', { class: 'ghost' }, 'Disconnect');
+  const tokenStatus = el('div', { class: 'status' });
+
+  const paintToken = (present: boolean, detail?: string) => {
+    tokenRemove.style.display = present ? '' : 'none';
+    tokenSave.textContent = present ? 'Replace token' : 'Connect GitHub';
+    tokenStatus.replaceChildren(
+      note(
+        detail ??
+          (present
+            ? 'Connected. Private repos and your own rate limit are in use.'
+            : 'Optional. Without one, public stats are fetched with the built-in token.'),
+        present ? 'ok' : 'info',
+      ),
+    );
+  };
+  paintToken(false);
+  api
+    .tokenStatus(session)
+    .then((s) => paintToken(s.present))
+    .catch(() => {});
+
+  tokenSave.onclick = async () => {
+    const value = tokenInput.value.trim();
+    if (!value) {
+      tokenStatus.replaceChildren(note('Paste a token first.', 'err'));
+      return;
+    }
+    tokenSave.disabled = true;
+    tokenStatus.replaceChildren(note('Checking with GitHub…'));
+    try {
+      const { login } = await api.setToken(session, value);
+      tokenInput.value = '';
+      paintToken(true, `Connected as ${login}.`);
+      payload = await api.getPreview(session).catch(() => payload);
+      preview.draw();
+    } catch (err) {
+      tokenStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+    tokenSave.disabled = false;
+  };
+
+  tokenRemove.onclick = async () => {
+    tokenRemove.disabled = true;
+    try {
+      await api.clearToken(session);
+      paintToken(false, 'Disconnected. Back to the built-in token.');
+    } catch (err) {
+      tokenStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+    tokenRemove.disabled = false;
+  };
+
   const refreshBtn = el('button', { class: 'ghost' }, 'Refresh from GitHub now');
   const refreshStatus = el('span', { class: 'tag' }, '');
   refreshBtn.onclick = async () => {
@@ -337,6 +399,20 @@ async function configView(session: api.Session) {
           bright,
           el('label', { class: 'lbl' }, 'Auto-advance'),
           el('div', { class: 'row' }, rot, rotLabel),
+        ),
+        el(
+          'section',
+          { class: 'card' },
+          el('h2', {}, 'Your GitHub'),
+          el(
+            'p',
+            { class: 'muted' },
+            'Add a personal access token to include private repos and use your own ' +
+              'rate limit. Stored encrypted; it is never sent to the device.',
+          ),
+          tokenInput,
+          el('div', { class: 'row' }, tokenSave, tokenRemove),
+          tokenStatus,
         ),
         el('section', { class: 'card' }, el('div', { class: 'row' }, refreshBtn, refreshStatus)),
       ),

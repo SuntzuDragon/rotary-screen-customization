@@ -193,3 +193,24 @@ export async function buildSnapshot(
 
   return { ...profile, feed, fetchedAt: Math.floor(Date.now() / 1000) };
 }
+
+/**
+ * Confirm a user-supplied PAT before storing it. A typo'd or revoked token
+ * would otherwise be accepted silently and only show up later as a blank
+ * display, so this is checked at the point the user can still fix it.
+ * Returns the authenticated login, or null if the token is not usable.
+ */
+export async function verifyToken(token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API}/graphql`, {
+      method: 'POST',
+      headers: { ...headers(token), 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ viewer { login } }' }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { viewer?: { login?: string } } };
+    return body.data?.viewer?.login ?? null;
+  } catch {
+    return null;
+  }
+}

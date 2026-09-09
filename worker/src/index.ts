@@ -1,4 +1,4 @@
-import { buildSnapshot, lastRateRemaining } from './github';
+import { buildSnapshot, lastRateRemaining, verifyToken } from './github';
 import { buildPayload, diffSnapshots } from './payload';
 import {
   clearUserToken,
@@ -232,11 +232,25 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   }
 
   if (resource === 'token') {
+    if (req.method === 'GET') {
+      const stored = await getUserToken(env, id);
+      return json(
+        { present: Boolean(stored) },
+        { headers: { 'access-control-allow-origin': '*' } },
+      );
+    }
     if (req.method === 'POST') {
       const body = (await req.json().catch(() => null)) as { token?: string } | null;
       if (typeof body?.token !== 'string' || body.token.length < 20) return fail(400, 'bad token');
+
+      const login = await verifyToken(body.token);
+      if (!login) return fail(400, 'GitHub rejected that token');
+
       await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token));
-      return json({ ok: true }, { headers: { 'access-control-allow-origin': '*' } });
+      // Re-fetch straight away so the display reflects the new access.
+      const config = await ensureConfig(env, id);
+      ctx.waitUntil(refreshLogin(env, config.login, body.token).catch(() => {}));
+      return json({ ok: true, login }, { headers: { 'access-control-allow-origin': '*' } });
     }
     if (req.method === 'DELETE') {
       await clearUserToken(env, id);
