@@ -203,7 +203,7 @@ void pollOnce() {
   // diagnostics, which is most of a free-tier write budget for data nobody
   // reads unless something is wrong.
   static uint8_t sinceShip = 0;
-  if (++sinceShip >= 10) {  // ~5 minutes at a 30s poll
+  if (++sinceShip >= 30) {  // ~5 minutes at a 10s poll
     sinceShip = 0;
     api::shipLogs();
   }
@@ -239,11 +239,12 @@ void netTask(void*) {
       gConnectRequested = false;
     }
 
-    // 30s, not 60. A config change has to clear KV's read lag (~15-30s) before
-    // the device can even see it, so a slow poll on top of that made a
-    // checkbox take up to 90 seconds to reach the dial. Reads are nowhere near
-    // the free-tier ceiling, so the extra polling is close to free.
-    if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 30000UL) {
+    // 10s. Config now updates server-side instantly (D1 is strongly
+    // consistent), so the poll interval is the *entire* remaining delay
+    // between pushing a setting and seeing it on the dial. Unchanged polls
+    // answer 304 with an empty body, and even at this rate the device uses
+    // under 9% of the request budget and 0.2% of the database read budget.
+    if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 10000UL) {
       lastPoll = millis();
       pollOnce();
     }
