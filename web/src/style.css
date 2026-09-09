@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap');
+
+:root {
+  --bg: #0b0d10;
+  --panel: #14181d;
+  --line: #232a32;
+  --fg: #e8edf2;
+  --muted: #8b97a5;
+  --accent: #f74c00;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 32px 20px 64px;
+  background: radial-gradient(120% 90% at 50% 0%, #161b22 0%, var(--bg) 60%);
+  color: var(--fg);
+  font: 500 14px/1.5 Montserrat, "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+#app { max-width: 940px; margin: 0 auto; }
+
+.hd { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.hd-mark {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: conic-gradient(from -90deg, var(--accent), #2b3340 70%, var(--accent));
+  box-shadow: inset 0 0 0 5px var(--bg);
+  flex: none;
+}
+h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+}
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+
+.muted { color: var(--muted); font-size: 13px; }
+.center { text-align: center; }
+
+/* The panel is 240x240. Showing it at 2x with nearest-neighbour keeps the
+   preview honest about how chunky text actually looks on the hardware. */
+.preview { position: sticky; top: 20px; text-align: center; }
+.screen {
+  width: 280px; height: 280px;
+  border-radius: 50%;
+  image-rendering: pixelated;
+  background: #000;
+  border: 6px solid #1b2027;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.55), inset 0 0 0 1px #2c333c;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+button {
+  font: inherit; font-weight: 600;
+  border-radius: 9px; padding: 10px 15px;
+  border: 1px solid transparent; cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 6px; }
+.ghost { background: transparent; border-color: var(--line); color: var(--fg); }
+
+.input, .range, .swatch {
+  width: 100%; font: inherit;
+  background: #0f1317; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px;
+}
+.swatch { height: 40px; padding: 4px; }
+.range { padding: 0; border: none; background: none; accent-color: var(--accent); }
+.lbl { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+
+.rows { display: flex; flex-direction: column; gap: 2px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 6px 2px; }
+.row span:first-of-type { flex: 1; }
+.row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+.tag { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.status { min-height: 20px; }
+.note { font-size: 13px; margin: 10px 0 0; }
+.note-err { color: #ff8a6a; }
+.note-ok { color: #66d19e; }
+.note-info { color: var(--muted); }

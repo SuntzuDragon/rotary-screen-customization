@@ -1,0 +1,20 @@
+{
+  "name": "rotary-stats-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "improv-wifi-serial-sdk": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/w3c-web-serial": "^1.0.8",
+    "typescript": "^5.9.0",
+    "vite": "^8.2.2"
+  }
+}
