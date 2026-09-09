@@ -153,7 +153,47 @@ void loadDemoStats() {
 
 }  // namespace
 
-#ifdef DIAG_BACKLIGHT
+#ifdef DIAG_COLOR
+/**
+ * Colour ground-truth build. Draws with LovyanGFX directly -- no LVGL, no
+ * framebuffer -- so it isolates the panel configuration from how LVGL's buffer
+ * is being interpreted. `color888` asks LovyanGFX for a colour by name; if
+ * these come out wrong, the panel config is wrong. If they come out right,
+ * the panel is fine and the fault is purely in the LVGL pixel format.
+ */
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
+  pinMode(PIN_PWR_EN2, OUTPUT); digitalWrite(PIN_PWR_EN2, HIGH);
+  gLcd.init();
+  gLcd.setRotation(0);
+  backlight::begin(90);
+  gLcd.setTextSize(2);
+}
+
+struct Swatch { const char* name; uint8_t r, g, b; };
+static const Swatch kSwatches[] = {
+    {"RED",   255, 0,   0},
+    {"GREEN", 0,   255, 0},
+    {"BLUE",  0,   0,   255},
+    {"WHITE", 255, 255, 255},
+    {"BG",    0x0B, 0x0D, 0x10},   // the UI background: should look near-black
+    {"ORANGE",0xF7, 0x4C, 0x00},   // the UI accent
+};
+
+void loop() {
+  for (const auto& s : kSwatches) {
+    gLcd.fillScreen(gLcd.color888(s.r, s.g, s.b));
+    // Label in a contrasting colour so the swatch name is readable.
+    gLcd.setTextColor(gLcd.color888(128, 128, 128));
+    gLcd.setCursor(70, 110);
+    gLcd.print(s.name);
+    Serial.printf("[color] showing %s (r=%u g=%u b=%u)\n", s.name, s.r, s.g, s.b);
+    delay(2500);
+  }
+}
+#elif defined(DIAG_BACKLIGHT)
 /**
  * Backlight-only bring-up build. Blinks GPIO46 forever with nothing else
  * running, so the panel can be observed at leisure instead of during a 2.7s
