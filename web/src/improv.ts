@@ -35,9 +35,18 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
   // working perfectly. Sending the same request from a script that clears these
   // first gets a full, correct response.
   try {
-    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
-    // Opening may still have bounced the board; give it a moment to come back.
-    await new Promise((r) => setTimeout(r, 1500));
+    // Order matters, and clearing both at once is not enough: if IO0 (BOOT) is
+    // still low when EN rises, the chip boots into *download mode* and answers
+    // nothing -- the same trap that made flashing leave a dead board. Release
+    // BOOT first, settle, then release EN so it starts the application.
+    await port.setSignals({ dataTerminalReady: false }); // BOOT high
+    await new Promise((r) => setTimeout(r, 50));
+    await port.setSignals({ requestToSend: true }); // EN low: hold in reset
+    await new Promise((r) => setTimeout(r, 120));
+    await port.setSignals({ requestToSend: false }); // EN high: run the app
+    onStatus('Restarted the device — waiting for it to boot…');
+    // It reaches its Improv loop about 1.5s in; give it margin.
+    await new Promise((r) => setTimeout(r, 2500));
   } catch {
     // Not fatal: some platforms disallow setSignals, and the probe retries anyway.
   }
