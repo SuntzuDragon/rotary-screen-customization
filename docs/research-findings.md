@@ -322,3 +322,33 @@ Two details worth keeping:
   previous snapshot, so an unchanged response leaves the stats intact.
 - Once stats are on screen, a later phase change must never replace them with a
   status card — otherwise a transient reconnect wipes a working display.
+
+## 15. Debugging infrastructure
+
+Too much of this bring-up was guesswork, because the moments worth observing
+were the ones where no monitor could be attached. Three things now make the
+device observable:
+
+**Device logs over Wi-Fi.** A 48-line ring buffer is tee'd from every `logf()`
+call and shipped to `POST /api/log/:id`, readable back with `GET /api/log/:id`.
+This matters because the browser *owns the serial port* during provisioning —
+the single most failure-prone moment is the one where a serial monitor cannot be
+connected. The heartbeat and input echo stay on the cable only, or they flush
+the interesting boot lines out of the ring.
+
+Shipping is piggybacked on the poll cycle. On its own 10-second timer it opened
+a fresh TLS connection each time, visible as the heap sawtoothing between 155KB
+and 208KB — not a leak, but a lot of handshakes for log lines.
+
+**Browser console.** `cdt list_console_messages <pageId>` reads the page's
+console, so the browser half of a failed provisioning attempt is inspectable
+too.
+
+**Passive serial.** `cap.py` clears DTR/RTS before opening so watching the device
+does not reset it (see section 13).
+
+Reading the log without any hardware attached:
+
+```bash
+curl -s https://hdog.imcb.dev/api/log/<deviceId> -H "x-device-key: <secret>" | jq -r '.lines[]'
+```

@@ -69,7 +69,7 @@ bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs)
 }
 
 bool syncClock(uint32_t timeoutMs) {
-  devlog::logf("[net] ntp sync...\\n");
+  devlog::logf("[net] ntp sync...\n");
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   const uint32_t start = millis();
   while (millis() - start < timeoutMs) {
@@ -80,7 +80,7 @@ bool syncClock(uint32_t timeoutMs) {
     }
     pump(250);
   }
-  devlog::logf("[net] ntp FAILED - TLS will reject certs without a clock\\n");
+  devlog::logf("[net] ntp FAILED - TLS will reject certs without a clock\n");
   return false;
 }
 

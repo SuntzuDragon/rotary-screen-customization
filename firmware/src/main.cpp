@@ -65,7 +65,7 @@ void checkForNewStars(const Stats& s) {
   const bool firstRun = gNewestSeenEvent == 0;
   gNewestSeenEvent = newest;
   if (star && !firstRun) {
-    devlog::logf("[led] new star -> pulse\\n");
+    devlog::logf("[led] new star -> pulse\n");
     pulseLeds();
   }
 }
@@ -115,7 +115,7 @@ void initLvgl() {
   gBuf1 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
   gBuf2 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
   if (!gBuf1 || !gBuf2) {
-    devlog::logf("PSRAM unavailable - falling back to internal RAM\\n");
+    devlog::logf("PSRAM unavailable - falling back to internal RAM\n");
     free(gBuf1);
     free(gBuf2);
     px = SCREEN_W * 10;
@@ -189,13 +189,17 @@ bool bringUpNetwork(const String& ssid, const String& pass) {
 }
 
 void pollOnce() {
-  devlog::logf("[net] polling...\\n");
+  devlog::logf("[net] polling...\n");
   Stats fresh{};
   xSemaphoreTake(gStateMutex, portMAX_DELAY);
   fresh = gShared;  // keep prior values so a 304 never blanks the UI
   xSemaphoreGive(gStateMutex);
 
   const api::Result r = api::poll(fresh);
+  // Piggyback on the poll cadence. Shipping on its own timer meant a fresh TLS
+  // handshake every 10s purely for logs -- visible as the heap sawtoothing
+  // between 155KB and 208KB.
+  api::shipLogs();
   if (r == api::Result::Updated) {
     xSemaphoreTake(gStateMutex, portMAX_DELAY);
     gShared = fresh;
@@ -228,13 +232,6 @@ void netTask(void*) {
       pollOnce();
     }
 
-    // Ship whatever accumulated, including everything logged before Wi-Fi came
-    // up -- that early window is the interesting one.
-    static uint32_t lastShip = 0;
-    if (gRegistered && millis() - lastShip > 10000UL) {
-      lastShip = millis();
-      api::shipLogs();
-    }
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
@@ -390,7 +387,7 @@ void setup() {
   Serial.setTxTimeoutMs(50);
 #endif
   delay(300);
-  devlog::logf("[diag] backlight-only build: GPIO46 1s on / 1s off, forever\\n");
+  devlog::logf("[diag] backlight-only build: GPIO46 1s on / 1s off, forever\n");
   // Board power rails must come up before anything else -- see board_pins.h.
   pinMode(PIN_PWR_EN1, OUTPUT);
   digitalWrite(PIN_PWR_EN1, HIGH);
@@ -398,16 +395,16 @@ void setup() {
   digitalWrite(PIN_PWR_EN2, HIGH);
   pinMode(PIN_PWR_IND, OUTPUT);
   digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
-  devlog::logf("[diag] power rails GPIO1/GPIO2 HIGH\\n");
+  devlog::logf("[diag] power rails GPIO1/GPIO2 HIGH\n");
   pinMode(PIN_LCD_BL, OUTPUT);
 }
 
 void loop() {
   digitalWrite(PIN_LCD_BL, HIGH);
-  devlog::logf("[diag] GPIO46 HIGH  <- backlight should be ON now\\n");
+  devlog::logf("[diag] GPIO46 HIGH  <- backlight should be ON now\n");
   delay(1000);
   digitalWrite(PIN_LCD_BL, LOW);
-  devlog::logf("[diag] GPIO46 LOW   <- backlight should be OFF now\\n");
+  devlog::logf("[diag] GPIO46 LOW   <- backlight should be OFF now\n");
   delay(1000);
 }
 #else
@@ -439,9 +436,9 @@ void setup() {
   digitalWrite(PIN_PWR_EN2, HIGH);
   pinMode(PIN_PWR_IND, OUTPUT);
   digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
-  devlog::logf("[boot] power rails GPIO1/GPIO2 HIGH\\n");
+  devlog::logf("[boot] power rails GPIO1/GPIO2 HIGH\n");
 
-  devlog::logf("[boot] display init\\n");
+  devlog::logf("[boot] display init\n");
   const bool lcdOk = gLcd.init();
   devlog::logf("[boot] gLcd.init() -> %s\n", lcdOk ? "true" : "false");
   gLcd.setRotation(0);
@@ -453,7 +450,7 @@ void setup() {
   gLeds.clear();
   gLeds.show();
   backlight::begin(80);
-  devlog::logf("[boot] backlight on (GPIO46 ledc ch0)\\n");
+  devlog::logf("[boot] backlight on (GPIO46 ledc ch0)\n");
 
   // Panel self-test: a solid fill before LVGL exists. If this flashes, the SPI
   // bus and backlight are both good and any later blankness is a UI bug.
@@ -462,7 +459,7 @@ void setup() {
   gLcd.fillScreen(0x07E0);  // green
   delay(250);
   gLcd.fillScreen(0x0000);
-  devlog::logf("[boot] panel self-test done\\n");
+  devlog::logf("[boot] panel self-test done\n");
 
   initLvgl();
   ui::init(0xF74C00);
@@ -481,7 +478,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), onEncoderEdge, CHANGE);
 
 #ifdef DEMO_MODE
-  devlog::logf("[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi\\n");
+  devlog::logf("[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi\n");
   loadDemoStats();
   ui::setStats(gStats);
   return;
@@ -539,7 +536,7 @@ void loop() {
   const int32_t detents = (steps - consumed) / 4;
   if (detents != 0) {
     consumed += detents * 4;
-    devlog::logf("[input] rotate %+ld\n", static_cast<long>(detents));
+    Serial.printf("[input] rotate %+ld\n", static_cast<long>(detents));
     ui::onRotate(detents > 0 ? 1 : -1);
   }
 
@@ -551,7 +548,9 @@ void loop() {
   static uint32_t lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    devlog::logf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
+    // Serial only: the heartbeat is for watching a cable, and shipping it would
+    // flush the boot and network lines out of the remote ring buffer.
+    Serial.printf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
                   static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<long>(gEncoderSteps));
   }
@@ -561,7 +560,7 @@ void loop() {
   const bool switchNow = digitalRead(PIN_ENC_SW);
   if (switchWas && !switchNow && millis() - lastSwitch > 220) {
     lastSwitch = millis();
-    devlog::logf("[input] press\\n");
+    Serial.println("[input] press");
     ui::onPress();
   }
   switchWas = switchNow;
