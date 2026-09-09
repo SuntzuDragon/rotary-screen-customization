@@ -81,6 +81,13 @@ export const getStatus = (s: Session) =>
     firmware: FirmwareIndex | null;
   }>(s, 'status');
 
+/** Public firmware list — no session needed, so flashing never depends on one. */
+export async function listFirmware(): Promise<FirmwareIndex> {
+  const res = await fetch('/api/firmware/list');
+  if (!res.ok) throw new Error(`could not list firmware (${res.status})`);
+  return res.json() as Promise<FirmwareIndex>;
+}
+
 /** Fetch a published image for flashing. */
 export async function fetchFirmware(version: string): Promise<ArrayBuffer> {
   const res = await fetch(`/api/firmware/merged.bin?v=${encodeURIComponent(version)}`);

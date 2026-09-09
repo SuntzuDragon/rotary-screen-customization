@@ -1,4 +1,5 @@
 #include "improv_serial.h"
+#include "devlog.h"
 
 #include <WiFi.h>
 
@@ -33,17 +34,29 @@ void ImprovSerial::setState(State s) {
 
 void ImprovSerial::sendPacket(uint8_t type, const uint8_t* data, size_t len) {
   if (!_io) return;
+
+  // Assemble the whole packet and write it once.
+  //
+  // Writing byte by byte was one timeout per byte: with a short (or zero) USB
+  // TX timeout a momentarily full buffer silently drops part of the packet, and
+  // the client sees a truncated frame it can never parse -- which looks exactly
+  // like "no Improv device answered". One write is one timeout, and the packet
+  // either goes out whole or not at all.
+  uint8_t out[kMaxPacket + 16];
+  size_t n = 0;
+  for (uint8_t b : kHeader) out[n++] = b;
+  out[n++] = kVersion;
+  out[n++] = type;
+  out[n++] = static_cast<uint8_t>(len);
+  if (len > kMaxPacket) return;
+  memcpy(out + n, data, len);
+  n += len;
+
   uint8_t sum = 0;
-  auto put = [&](uint8_t b) {
-    _io->write(b);
-    sum += b;
-  };
-  for (uint8_t b : kHeader) put(b);
-  put(kVersion);
-  put(type);
-  put(static_cast<uint8_t>(len));
-  for (size_t i = 0; i < len; i++) put(data[i]);
-  _io->write(sum);
+  for (size_t i = 0; i < n; i++) sum += out[i];
+  out[n++] = sum;
+
+  _io->write(out, n);
   _io->flush();
 }
 
@@ -129,7 +142,7 @@ void ImprovSerial::sendScanResults() {
     }
   }
 
-  Serial.printf("[improv] %d radios -> %d unique networks\n", found, count);
+  devlog::logf("[improv] %d radios -> %d unique networks\n", found, count);
   for (int i = 0; i < count; i++) {
     const String row[3] = {names[i], String(rssi[i]), secured[i] ? "YES" : "NO"};
     sendRpcResult(CMD_SCAN, row, 3);

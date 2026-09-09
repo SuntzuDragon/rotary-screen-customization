@@ -5,6 +5,8 @@ import {
   getFirmwareBin,
   getFirmwareIndex,
   publishFirmware,
+  appendDeviceLog,
+  getDeviceLog,
   getStatus,
   putStatus,
   ensureConfig,
@@ -287,6 +289,26 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     return payload
       ? json(payload, { headers: { 'access-control-allow-origin': '*' } })
       : fail(503, 'no data yet');
+  }
+
+  /* Device log tail: POSTed by the device, read back for debugging. */
+  if (resource === 'log') {
+    if (req.method === 'POST') {
+      const body = (await req.json().catch(() => null)) as { lines?: unknown } | null;
+      if (!Array.isArray(body?.lines)) return fail(400, 'expected {lines: string[]}');
+      const lines = (body.lines as unknown[])
+        .filter((l): l is string => typeof l === 'string')
+        .map((l) => l.slice(0, 240))
+        .slice(-50);
+      if (lines.length) await appendDeviceLog(env, id, lines);
+      return json({ ok: true, stored: lines.length });
+    }
+    if (req.method === 'GET') {
+      const log = await getDeviceLog(env, id);
+      return json(log ?? { at: 0, lines: [] }, {
+        headers: { 'access-control-allow-origin': '*' },
+      });
+    }
   }
 
   if (resource === 'status' && req.method === 'GET') {

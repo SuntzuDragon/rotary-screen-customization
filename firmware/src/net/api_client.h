@@ -21,4 +21,7 @@ bool registerDevice();
 /** Poll for stats. Returns Unchanged when the server answers 304. */
 Result poll(Stats& out);
 
+/** Ship buffered log lines to the service. Best effort; never throws. */
+void shipLogs();
+
 }  // namespace api

@@ -112,6 +112,30 @@ export async function publishFirmware(env: Env, meta: FirmwareMeta, bin: ArrayBu
 
 export const getStatus = (env: Env, id: string) => getJSON<DeviceStatus>(env, statusKey(id));
 
+/**
+ * Recent device log lines, shipped over Wi-Fi.
+ *
+ * The serial port is exactly what is unavailable when provisioning misbehaves --
+ * the browser holds it — so the one moment worth observing is the one moment we
+ * cannot attach a monitor. Shipping a bounded tail over HTTP makes that
+ * debuggable without the cable.
+ */
+const logKey = (id: string) => `dev:${id}:log`;
+
+export const MAX_LOG_LINES = 200;
+
+export const getDeviceLog = (env: Env, id: string) =>
+  getJSON<{ at: number; lines: string[] }>(env, logKey(id));
+
+export async function appendDeviceLog(env: Env, id: string, lines: string[]) {
+  const existing = (await getDeviceLog(env, id))?.lines ?? [];
+  const merged = [...existing, ...lines].slice(-MAX_LOG_LINES);
+  await env.DEVICES.put(
+    logKey(id),
+    JSON.stringify({ at: Math.floor(Date.now() / 1000), lines: merged }),
+  );
+}
+
 export const putStatus = (env: Env, id: string, s: DeviceStatus) =>
   env.DEVICES.put(statusKey(id), JSON.stringify(s));
 

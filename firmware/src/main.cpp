@@ -9,6 +9,7 @@
 #include "display.h"
 #include "model/stats.h"
 #include "net/api_client.h"
+#include "net/devlog.h"
 #include "net/improv_serial.h"
 #include "net/settings.h"
 #include "ui/ui.h"
@@ -64,7 +65,7 @@ void checkForNewStars(const Stats& s) {
   const bool firstRun = gNewestSeenEvent == 0;
   gNewestSeenEvent = newest;
   if (star && !firstRun) {
-    Serial.println("[led] new star -> pulse");
+    devlog::logf("[led] new star -> pulse\\n");
     pulseLeds();
   }
 }
@@ -114,7 +115,7 @@ void initLvgl() {
   gBuf1 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
   gBuf2 = static_cast<lv_color_t*>(heap_caps_malloc(px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM));
   if (!gBuf1 || !gBuf2) {
-    Serial.println("PSRAM unavailable - falling back to internal RAM");
+    devlog::logf("PSRAM unavailable - falling back to internal RAM\\n");
     free(gBuf1);
     free(gBuf2);
     px = SCREEN_W * 10;
@@ -183,12 +184,12 @@ bool bringUpNetwork(const String& ssid, const String& pass) {
   }
   setPhase(NetPhase::Registering, settings::deviceId().c_str());
   gRegistered = api::registerDevice();
-  Serial.printf("[net] registered=%d\n", gRegistered ? 1 : 0);
+  devlog::logf("[net] registered=%d\n", gRegistered ? 1 : 0);
   return true;
 }
 
 void pollOnce() {
-  Serial.println("[net] polling...");
+  devlog::logf("[net] polling...\\n");
   Stats fresh{};
   xSemaphoreTake(gStateMutex, portMAX_DELAY);
   fresh = gShared;  // keep prior values so a 304 never blanks the UI
@@ -225,6 +226,14 @@ void netTask(void*) {
     if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 60000UL) {
       lastPoll = millis();
       pollOnce();
+    }
+
+    // Ship whatever accumulated, including everything logged before Wi-Fi came
+    // up -- that early window is the interesting one.
+    static uint32_t lastShip = 0;
+    if (gRegistered && millis() - lastShip > 10000UL) {
+      lastShip = millis();
+      api::shipLogs();
     }
     vTaskDelay(pdMS_TO_TICKS(50));
   }
@@ -326,12 +335,13 @@ void loadDemoStats() {
  */
 void setup() {
   Serial.begin(115200);
-  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
-  // port open without reading (a browser that opened it for Improv and then
-  // gave up) stalls Serial.write indefinitely, which freezes the whole device
-  // mid-boot. Dropping log bytes is always preferable to hanging.
+  // Bounded, not zero. A host that holds the port open without reading will
+  // stall Serial.write indefinitely at the default timeout, freezing the device
+  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
+  // full, which silently truncates Improv packets. A short timeout gives them
+  // room to drain without ever hanging.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(0);
+  Serial.setTxTimeoutMs(50);
 #endif
   delay(300);
   pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
@@ -359,7 +369,7 @@ void loop() {
     gLcd.setTextColor(gLcd.color888(128, 128, 128));
     gLcd.setCursor(70, 110);
     gLcd.print(s.name);
-    Serial.printf("[color] showing %s (r=%u g=%u b=%u)\n", s.name, s.r, s.g, s.b);
+    devlog::logf("[color] showing %s (r=%u g=%u b=%u)\n", s.name, s.r, s.g, s.b);
     delay(2500);
   }
 }
@@ -371,15 +381,16 @@ void loop() {
  */
 void setup() {
   Serial.begin(115200);
-  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
-  // port open without reading (a browser that opened it for Improv and then
-  // gave up) stalls Serial.write indefinitely, which freezes the whole device
-  // mid-boot. Dropping log bytes is always preferable to hanging.
+  // Bounded, not zero. A host that holds the port open without reading will
+  // stall Serial.write indefinitely at the default timeout, freezing the device
+  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
+  // full, which silently truncates Improv packets. A short timeout gives them
+  // room to drain without ever hanging.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(0);
+  Serial.setTxTimeoutMs(50);
 #endif
   delay(300);
-  Serial.println("[diag] backlight-only build: GPIO46 1s on / 1s off, forever");
+  devlog::logf("[diag] backlight-only build: GPIO46 1s on / 1s off, forever\\n");
   // Board power rails must come up before anything else -- see board_pins.h.
   pinMode(PIN_PWR_EN1, OUTPUT);
   digitalWrite(PIN_PWR_EN1, HIGH);
@@ -387,37 +398,38 @@ void setup() {
   digitalWrite(PIN_PWR_EN2, HIGH);
   pinMode(PIN_PWR_IND, OUTPUT);
   digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
-  Serial.println("[diag] power rails GPIO1/GPIO2 HIGH");
+  devlog::logf("[diag] power rails GPIO1/GPIO2 HIGH\\n");
   pinMode(PIN_LCD_BL, OUTPUT);
 }
 
 void loop() {
   digitalWrite(PIN_LCD_BL, HIGH);
-  Serial.println("[diag] GPIO46 HIGH  <- backlight should be ON now");
+  devlog::logf("[diag] GPIO46 HIGH  <- backlight should be ON now\\n");
   delay(1000);
   digitalWrite(PIN_LCD_BL, LOW);
-  Serial.println("[diag] GPIO46 LOW   <- backlight should be OFF now");
+  devlog::logf("[diag] GPIO46 LOW   <- backlight should be OFF now\\n");
   delay(1000);
 }
 #else
 
 void setup() {
   Serial.begin(115200);
-  // Non-blocking TX. On the USB-Serial/JTAG peripheral a host that holds the
-  // port open without reading (a browser that opened it for Improv and then
-  // gave up) stalls Serial.write indefinitely, which freezes the whole device
-  // mid-boot. Dropping log bytes is always preferable to hanging.
+  // Bounded, not zero. A host that holds the port open without reading will
+  // stall Serial.write indefinitely at the default timeout, freezing the device
+  // mid-boot -- but zero makes writes drop bytes the instant the buffer is
+  // full, which silently truncates Improv packets. A short timeout gives them
+  // room to drain without ever hanging.
 #if ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(0);
+  Serial.setTxTimeoutMs(50);
 #endif
   delay(300);  // let the USB CDC host attach before the first line
-  Serial.printf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
+  devlog::logf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
                 static_cast<int>(esp_reset_reason()));
-  Serial.printf("[boot] psram=%u bytes free, heap=%u bytes free\n",
+  devlog::logf("[boot] psram=%u bytes free, heap=%u bytes free\n",
                 static_cast<unsigned>(ESP.getFreePsram()),
                 static_cast<unsigned>(ESP.getFreeHeap()));
   settings::begin();
-  Serial.printf("[boot] device=%s provisioned=%d url=%s\n", settings::deviceId().c_str(),
+  devlog::logf("[boot] device=%s provisioned=%d url=%s\n", settings::deviceId().c_str(),
                 settings::hasWifi() ? 1 : 0, settings::baseUrl().c_str());
 
   // Board power rails must come up before anything else -- see board_pins.h.
@@ -427,11 +439,11 @@ void setup() {
   digitalWrite(PIN_PWR_EN2, HIGH);
   pinMode(PIN_PWR_IND, OUTPUT);
   digitalWrite(PIN_PWR_IND, LOW);  // active low: lights the power indicator
-  Serial.println("[boot] power rails GPIO1/GPIO2 HIGH");
+  devlog::logf("[boot] power rails GPIO1/GPIO2 HIGH\\n");
 
-  Serial.println("[boot] display init");
+  devlog::logf("[boot] display init\\n");
   const bool lcdOk = gLcd.init();
-  Serial.printf("[boot] gLcd.init() -> %s\n", lcdOk ? "true" : "false");
+  devlog::logf("[boot] gLcd.init() -> %s\n", lcdOk ? "true" : "false");
   gLcd.setRotation(0);
   gLcd.initDMA();
 
@@ -441,7 +453,7 @@ void setup() {
   gLeds.clear();
   gLeds.show();
   backlight::begin(80);
-  Serial.println("[boot] backlight on (GPIO46 ledc ch0)");
+  devlog::logf("[boot] backlight on (GPIO46 ledc ch0)\\n");
 
   // Panel self-test: a solid fill before LVGL exists. If this flashes, the SPI
   // bus and backlight are both good and any later blankness is a UI bug.
@@ -450,7 +462,7 @@ void setup() {
   gLcd.fillScreen(0x07E0);  // green
   delay(250);
   gLcd.fillScreen(0x0000);
-  Serial.println("[boot] panel self-test done");
+  devlog::logf("[boot] panel self-test done\\n");
 
   initLvgl();
   ui::init(0xF74C00);
@@ -469,7 +481,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), onEncoderEdge, CHANGE);
 
 #ifdef DEMO_MODE
-  Serial.println("[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi");
+  devlog::logf("[boot] DEMO_MODE - rendering baked-in stats, no Wi-Fi\\n");
   loadDemoStats();
   ui::setStats(gStats);
   return;
@@ -504,7 +516,7 @@ void setup() {
     String host = settings::baseUrl();
     host.replace("https://", "");
     host.replace("http://", "");
-    Serial.printf("[ui] setup screen: %s\n", host.c_str());
+    devlog::logf("[ui] setup screen: %s\n", host.c_str());
     ui::showSetup(host.c_str());
   }
 
@@ -527,7 +539,7 @@ void loop() {
   const int32_t detents = (steps - consumed) / 4;
   if (detents != 0) {
     consumed += detents * 4;
-    Serial.printf("[input] rotate %+ld\n", static_cast<long>(detents));
+    devlog::logf("[input] rotate %+ld\n", static_cast<long>(detents));
     ui::onRotate(detents > 0 ? 1 : -1);
   }
 
@@ -539,7 +551,7 @@ void loop() {
   static uint32_t lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    Serial.printf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
+    devlog::logf("[alive] %lus heap=%u enc=%ld\n", millis() / 1000,
                   static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<long>(gEncoderSteps));
   }
@@ -549,7 +561,7 @@ void loop() {
   const bool switchNow = digitalRead(PIN_ENC_SW);
   if (switchWas && !switchNow && millis() - lastSwitch > 220) {
     lastSwitch = millis();
-    Serial.println("[input] press");
+    devlog::logf("[input] press\\n");
     ui::onPress();
   }
   switchWas = switchNow;

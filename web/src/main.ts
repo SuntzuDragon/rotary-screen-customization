@@ -37,6 +37,183 @@ function note(msg: string, kind: 'err' | 'ok' | 'info' = 'info') {
   return el('p', { class: `note note-${kind}` }, msg);
 }
 
+
+/**
+ * Firmware card. Works with or without a session.
+ *
+ * Flashing needs Web Serial and nothing else -- not Improv, not a device
+ * identity. Gating it behind provisioning created a dead end: a device that
+ * could not be provisioned also could not be reflashed, which is exactly when
+ * you most need to. Only publishing your own build requires a session, since
+ * that writes to shared storage.
+ */
+function firmwareCard(session: api.Session | null) {
+  const fwSelect = el('select', { class: 'input' }) as HTMLSelectElement;
+  const fwStatus = el('div', { class: 'status' });
+  const fwBar = el('div', { class: 'bar-fill' });
+  const fwBarWrap = el('div', { class: 'bar' }, fwBar);
+  fwBarWrap.hidden = true;
+  const fwLog = el('pre', { class: 'log' });
+  const fwLogBox = el('details', { class: 'adv' }, el('summary', {}, 'Flashing log'), fwLog);
+  const flashBtn = el('button', { class: 'primary' }, 'Flash over USB');
+  const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
+  const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
+
+  let runningVersion: string | null = null;
+
+  const logLine = (line: string) => {
+    fwLog.textContent = `${(fwLog.textContent ?? '') + line}`.slice(-8000);
+    fwLog.scrollTop = fwLog.scrollHeight;
+  };
+
+  const paint = async () => {
+    try {
+      // Without a session we can still read the public firmware list; we just
+      // cannot know which version the device is running.
+      let index: api.FirmwareIndex | null;
+      if (session) {
+        const status = await api.getStatus(session);
+        runningVersion = status.device?.fwVersion ?? null;
+        index = status.firmware;
+      } else {
+        index = await api.listFirmware();
+      }
+
+      const versions = index?.versions ?? [];
+      if (versions.length === 0) {
+        fwSelect.replaceChildren(el('option', { value: '' }, 'nothing published yet'));
+        flashBtn.disabled = true;
+        fwStatus.replaceChildren(note('No builds published yet.'));
+        return;
+      }
+
+      flashBtn.disabled = false;
+      const keep = fwSelect.value;
+      fwSelect.replaceChildren(
+        ...versions.map((v) => {
+          const when = new Date(v.uploadedAt * 1000).toISOString().slice(0, 10);
+          const tags = [
+            v.version === index?.latest ? 'latest' : '',
+            v.version === runningVersion ? 'installed' : '',
+            v.source,
+          ].filter(Boolean);
+          return el('option', { value: v.version }, `${v.version} — ${when} (${tags.join(', ')})`);
+        }),
+      );
+      fwSelect.value = keep && versions.some((v) => v.version === keep) ? keep : index!.latest;
+
+      if (!session) {
+        fwStatus.replaceChildren(note(`Latest is ${index?.latest}. Pick a version and flash.`));
+      } else {
+        const running = runningVersion ?? 'unknown';
+        const upToDate = runningVersion === index?.latest;
+        fwStatus.replaceChildren(
+          note(
+            `Running ${running} · latest ${index?.latest}` +
+              (upToDate ? ' — up to date.' : ' — a newer build is available.'),
+            upToDate ? 'ok' : 'info',
+          ),
+        );
+      }
+    } catch (err) {
+      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+  };
+  void paint();
+
+  flashBtn.onclick = async () => {
+    const version = fwSelect.value;
+    if (!version) return;
+    flashBtn.disabled = true;
+    fwLog.textContent = '';
+    fwLogBox.open = true;
+    fwBarWrap.hidden = false;
+    fwBar.style.width = '0%';
+    fwStatus.replaceChildren(note(`Downloading ${version}…`));
+
+    try {
+      const image = await api.fetchFirmware(version);
+      logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
+      fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
+
+      await flashFirmware(image, {
+        log: logLine,
+        progress: (f) => {
+          fwBar.style.width = `${Math.round(f * 100)}%`;
+          fwStatus.replaceChildren(note(`Writing… ${Math.round(f * 100)}%`));
+        },
+      });
+
+      fwBar.style.width = '100%';
+      fwStatus.replaceChildren(
+        note('Flashed. The device is restarting — Wi-Fi settings were kept.', 'ok'),
+      );
+      setTimeout(() => void paint(), 12000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logLine(`\nFAILED: ${msg}\n`);
+      fwStatus.replaceChildren(
+        note(`${msg} — the device may need flashing again before it boots.`, 'err'),
+      );
+    }
+    flashBtn.disabled = false;
+  };
+
+  fwUpload.onclick = async () => {
+    if (!session) return;
+    const file = fwFile.files?.[0];
+    if (!file) {
+      fwStatus.replaceChildren(note('Choose a merged .bin first.', 'err'));
+      return;
+    }
+    fwUpload.disabled = true;
+    fwStatus.replaceChildren(note(`Uploading ${(file.size / 1024).toFixed(0)} KB…`));
+    try {
+      await api.uploadFirmware(session, file, `custom-${new Date().toISOString().slice(0, 10)}`);
+      await paint();
+    } catch (err) {
+      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+    fwUpload.disabled = false;
+  };
+
+  const children: (Node | string)[] = [
+    el('h2', {}, 'Firmware'),
+    el(
+      'p',
+      { class: 'warn' },
+      'Flashing replaces the software on the device over USB. Keep it plugged in ' +
+        'until it finishes. If a flash fails the device may not boot until you ' +
+        'flash it again. Wi-Fi credentials are preserved — the flasher skips the ' +
+        'region they live in.',
+    ),
+    el('label', { class: 'lbl' }, 'Version'),
+    fwSelect,
+    flashBtn,
+    fwBarWrap,
+    fwStatus,
+    fwLogBox,
+  ];
+  if (session) {
+    children.push(
+      el(
+        'details',
+        { class: 'adv' },
+        el('summary', {}, 'Publish your own build'),
+        el(
+          'p',
+          { class: 'muted' },
+          'A merged image starting at offset 0 — the firmware workflow produces one, ' +
+            'or build locally and merge with esptool.',
+        ),
+        fwFile,
+        fwUpload,
+      ),
+    );
+  }
+  return el('section', { class: 'card' }, ...children);
+}
+
 /* ------------------------------- landing ------------------------------- */
 
 function landing() {
@@ -81,7 +258,9 @@ function landing() {
       ),
     );
   }
-  show(card);
+  // Flashing is available here as well: a device that will not provision still
+  // needs a way back, and flashing depends only on Web Serial.
+  show(el('div', { class: 'stack' }, card, firmwareCard(null)));
 }
 
 /* ------------------------------ provisioning ------------------------------ */
@@ -375,136 +554,6 @@ async function configView(session: api.Session) {
   };
 
 
-  /* firmware over USB */
-  const fwSelect = el('select', { class: 'input' }) as HTMLSelectElement;
-  const fwStatus = el('div', { class: 'status' });
-  const fwBar = el('div', { class: 'bar-fill' });
-  const fwBarWrap = el('div', { class: 'bar' }, fwBar);
-  fwBarWrap.hidden = true;
-  const fwLog = el('pre', { class: 'log' });
-  const fwLogBox = el(
-    'details',
-    { class: 'adv' },
-    el('summary', {}, 'Flashing log'),
-    fwLog,
-  );
-  const flashBtn = el('button', { class: 'primary' }, 'Flash over USB');
-  const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
-  const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
-
-  let runningVersion: string | null = null;
-
-  const logLine = (line: string) => {
-    // esptool-js emits partial writes and \r-based progress; keep the tail only.
-    fwLog.textContent = `${(fwLog.textContent ?? '') + line}`.slice(-6000);
-    fwLog.scrollTop = fwLog.scrollHeight;
-  };
-
-  const paintFirmware = async () => {
-    try {
-      const { device, firmware } = await api.getStatus(session);
-      runningVersion = device?.fwVersion ?? null;
-      const running = runningVersion ?? 'unknown';
-
-      const versions = firmware?.versions ?? [];
-      if (versions.length === 0) {
-        fwSelect.replaceChildren(el('option', { value: '' }, 'nothing published yet'));
-        flashBtn.disabled = true;
-        fwStatus.replaceChildren(
-          note(`Running ${running}. No builds published — tag a release or upload a .bin below.`),
-        );
-        return;
-      }
-
-      flashBtn.disabled = false;
-      const keep = fwSelect.value;
-      fwSelect.replaceChildren(
-        ...versions.map((v) => {
-          const when = new Date(v.uploadedAt * 1000).toISOString().slice(0, 10);
-          const tags = [
-            v.version === firmware?.latest ? 'latest' : '',
-            v.version === runningVersion ? 'installed' : '',
-            v.source,
-          ].filter(Boolean);
-          return el(
-            'option',
-            { value: v.version },
-            `${v.version} — ${when} (${tags.join(', ')})`,
-          );
-        }),
-      );
-      fwSelect.value = keep && versions.some((v) => v.version === keep) ? keep : firmware!.latest;
-
-      const upToDate = runningVersion === firmware?.latest;
-      fwStatus.replaceChildren(
-        note(
-          `Running ${running} · latest ${firmware?.latest}` +
-            (upToDate ? ' — up to date.' : ' — a newer build is available.'),
-          upToDate ? 'ok' : 'info',
-        ),
-      );
-    } catch (err) {
-      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
-    }
-  };
-  void paintFirmware();
-
-  flashBtn.onclick = async () => {
-    const version = fwSelect.value;
-    if (!version) return;
-    flashBtn.disabled = true;
-    fwLog.textContent = '';
-    fwLogBox.open = true;
-    fwBarWrap.hidden = false;
-    fwBar.style.width = '0%';
-    fwStatus.replaceChildren(note(`Downloading ${version}…`));
-
-    try {
-      const image = await api.fetchFirmware(version);
-      logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
-      fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
-
-      await flashFirmware(image, {
-        log: logLine,
-        progress: (f) => {
-          fwBar.style.width = `${Math.round(f * 100)}%`;
-          fwStatus.replaceChildren(note(`Writing… ${Math.round(f * 100)}%`));
-        },
-      });
-
-      fwBar.style.width = '100%';
-      fwStatus.replaceChildren(
-        note('Flashed. The device is restarting — Wi-Fi settings were kept.', 'ok'),
-      );
-      // Give it time to boot and report its new version.
-      setTimeout(() => void paintFirmware(), 12000);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logLine(`\nFAILED: ${msg}\n`);
-      fwStatus.replaceChildren(
-        note(`${msg} — the device may need flashing again before it boots.`, 'err'),
-      );
-    }
-    flashBtn.disabled = false;
-  };
-
-  fwUpload.onclick = async () => {
-    const file = fwFile.files?.[0];
-    if (!file) {
-      fwStatus.replaceChildren(note('Choose a merged .bin first.', 'err'));
-      return;
-    }
-    fwUpload.disabled = true;
-    fwStatus.replaceChildren(note(`Uploading ${(file.size / 1024).toFixed(0)} KB…`));
-    try {
-      await api.uploadFirmware(session, file, `custom-${new Date().toISOString().slice(0, 10)}`);
-      await paintFirmware();
-    } catch (err) {
-      fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
-    }
-    fwUpload.disabled = false;
-  };
-
   const refreshBtn = el('button', { class: 'ghost' }, 'Refresh from GitHub now');
   const refreshStatus = el('span', { class: 'tag' }, '');
   refreshBtn.onclick = async () => {
@@ -573,32 +622,7 @@ async function configView(session: api.Session) {
           el('div', { class: 'row' }, tokenSave, tokenRemove),
           tokenStatus,
         ),
-        el(
-          'section',
-          { class: 'card' },
-          el('h2', {}, 'Firmware'),
-          el(
-            'p',
-            { class: 'warn' },
-            'Flashing replaces the software on the device over USB. Keep it plugged ' +
-              'in until it finishes. If a flash fails the device may not boot until ' +
-              'you flash it again. Wi-Fi credentials are preserved — the flasher ' +
-              'skips the region they live in.',
-          ),
-          el('label', { class: 'lbl' }, 'Version'),
-          fwSelect,
-          flashBtn,
-          fwBarWrap,
-          fwStatus,
-          fwLogBox,
-          el('details', { class: 'adv' },
-            el('summary', {}, 'Publish your own build'),
-            el('p', { class: 'muted' },
-              'A merged image starting at offset 0 — the firmware workflow produces one, ' +
-              'or build locally and merge with esptool.'),
-            fwFile,
-            fwUpload),
-        ),
+        firmwareCard(session),
         el('section', { class: 'card' }, el('div', { class: 'row' }, refreshBtn, refreshStatus)),
         el(
           'p',
