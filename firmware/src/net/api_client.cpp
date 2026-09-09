@@ -13,15 +13,10 @@
 namespace {
 
 String gEtag;
-api::YieldFn gYield = nullptr;
 
-void pump(uint32_t ms) {
-  const uint32_t end = millis() + ms;
-  do {
-    if (gYield) gYield();
-    delay(5);
-  } while (static_cast<int32_t>(end - millis()) > 0);
-}
+// This module now runs entirely on the network task, so waiting is a plain
+// delay -- nothing here needs to keep the UI alive any more.
+void pump(uint32_t ms) { delay(ms); }
 
 uint32_t parseHexColor(const char* s) {
   if (!s || *s != '#') return 0;
@@ -52,8 +47,6 @@ WiFiClientSecure makeClient() {
 }  // namespace
 
 namespace api {
-
-void setYield(YieldFn fn) { gYield = fn; }
 
 bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs) {
   if (ssid.isEmpty()) return false;

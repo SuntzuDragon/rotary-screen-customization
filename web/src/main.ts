@@ -49,7 +49,7 @@ function landing() {
     btn.disabled = true;
     status.replaceChildren(note('Waiting for you to pick a port…'));
     try {
-      const conn = await connect();
+      const conn = await connect((msg) => status.replaceChildren(note(msg)));
       provisionView(conn);
     } catch (err) {
       status.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
+#include <WiFi.h>
 #include <lvgl.h>
 
 #include "board_pins.h"
@@ -133,55 +134,148 @@ void initLvgl() {
 
 /* ----------------------------- networking ----------------------------- */
 
-uint32_t gLastPoll = 0;
-bool gRegistered = false;
+/* --------------------------- network task ---------------------------- */
 
 /**
- * Keep the device responsive while the network blocks.
+ * All networking runs on core 0, away from the UI.
  *
- * Improv matters as much as the screen here: opening the serial port resets the
- * board, so the browser starts probing for Improv exactly while setup() is busy
- * joining Wi-Fi and registering. Without pumping it from here the device stays
- * silent for several seconds and the page reports "no Improv device answered".
+ * Wi-Fi association, NTP and TLS each block for seconds, and HTTPClient offers
+ * no way to yield from inside a request. Doing that work in setup()/loop() left
+ * the panel frozen and, worse, left Improv unanswered -- so the browser's probe
+ * (which itself resets the board) timed out against a device busy booting.
+ * Core 1 now only ever runs LVGL, Improv and the encoder, so the device stays
+ * responsive no matter what the network is doing.
  */
-void uiYield() {
-  lv_timer_handler();
-  gImprov.loop();
+enum class NetPhase : uint8_t { Idle, Connecting, Clock, Registering, Ready, Failed };
+
+SemaphoreHandle_t gStateMutex = nullptr;
+
+// Written by the network task, read by the UI. Guarded by gStateMutex.
+NetPhase gPhase = NetPhase::Idle;
+char gPhaseDetail[48] = "";
+Stats gShared{};
+bool gStatsDirty = false;
+
+// Connection request handed from the Improv handler to the network task.
+volatile bool gConnectRequested = false;
+volatile int8_t gConnectResult = -1;  // -1 pending, 0 failed, 1 ok
+String gReqSsid, gReqPass;
+bool gRegistered = false;
+
+void setPhase(NetPhase phase, const char* detail = "") {
+  xSemaphoreTake(gStateMutex, portMAX_DELAY);
+  gPhase = phase;
+  strncpy(gPhaseDetail, detail, sizeof(gPhaseDetail) - 1);
+  gPhaseDetail[sizeof(gPhaseDetail) - 1] = '\0';
+  xSemaphoreGive(gStateMutex);
 }
 
 bool bringUpNetwork(const String& ssid, const String& pass) {
-  ui::showStatus("Connecting", ssid.c_str());
-  lv_timer_handler();  // get that on the glass before we block
-
+  setPhase(NetPhase::Connecting, ssid.c_str());
   if (!api::connectWifi(ssid, pass)) {
-    ui::showStatus("Wi-Fi failed", "Could not join that network");
+    setPhase(NetPhase::Failed, "wifi");
     return false;
   }
-  ui::showStatus("Syncing clock", "NTP");
-  lv_timer_handler();
-
-  // Certificates are validated against the clock, so NTP must land first.
+  setPhase(NetPhase::Clock);
   if (!api::syncClock()) {
-    ui::showStatus("Clock failed", "NTP unreachable; TLS cannot verify");
+    setPhase(NetPhase::Failed, "clock");
     return false;
   }
-  ui::showStatus("Registering", settings::deviceId().c_str());
-  lv_timer_handler();
-
+  setPhase(NetPhase::Registering, settings::deviceId().c_str());
   gRegistered = api::registerDevice();
   Serial.printf("[net] registered=%d\n", gRegistered ? 1 : 0);
   return true;
 }
 
-void pollNow() {
+void pollOnce() {
   Serial.println("[net] polling...");
-  const api::Result r = api::poll(gStats);
+  Stats fresh{};
+  xSemaphoreTake(gStateMutex, portMAX_DELAY);
+  fresh = gShared;  // keep prior values so a 304 never blanks the UI
+  xSemaphoreGive(gStateMutex);
+
+  const api::Result r = api::poll(fresh);
   if (r == api::Result::Updated) {
+    xSemaphoreTake(gStateMutex, portMAX_DELAY);
+    gShared = fresh;
+    gStatsDirty = true;
+    xSemaphoreGive(gStateMutex);
+  }
+  if (r != api::Result::Failed) setPhase(NetPhase::Ready);
+}
+
+void netTask(void*) {
+  if (settings::hasWifi()) {
+    if (bringUpNetwork(settings::ssid(), settings::password())) pollOnce();
+  }
+
+  uint32_t lastPoll = millis();
+  for (;;) {
+    if (gConnectRequested) {
+      const bool ok = bringUpNetwork(gReqSsid, gReqPass);
+      if (ok) {
+        settings::saveWifi(gReqSsid, gReqPass);
+        pollOnce();
+        lastPoll = millis();
+      }
+      gConnectResult = ok ? 1 : 0;
+      gConnectRequested = false;
+    }
+
+    if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 60000UL) {
+      lastPoll = millis();
+      pollOnce();
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
+
+/** Called from loop(): reflects network state on screen. Owns all LVGL calls. */
+void serviceUi() {
+  static NetPhase shown = NetPhase::Idle;
+  static bool haveStats = false;
+
+  NetPhase phase;
+  char detail[48];
+  bool dirty;
+  xSemaphoreTake(gStateMutex, portMAX_DELAY);
+  phase = gPhase;
+  memcpy(detail, gPhaseDetail, sizeof(detail));
+  dirty = gStatsDirty;
+  if (dirty) {
+    gStats = gShared;
+    gStatsDirty = false;
+  }
+  xSemaphoreGive(gStateMutex);
+
+  if (dirty) {
     backlight::set(gStats.brightness);
     checkForNewStars(gStats);
     ui::setStats(gStats);
-  } else if (r == api::Result::Failed && !gStats.valid) {
-    ui::showStatus("No data yet", "Could not reach the stats service");
+    haveStats = true;
+    shown = NetPhase::Ready;
+    return;
+  }
+
+  // Once stats are on screen they stay there; a later phase change must never
+  // replace live data with a status card.
+  if (haveStats || phase == shown) {
+    shown = phase;
+    return;
+  }
+  shown = phase;
+
+  const bool wifiFailed = strcmp(detail, "wifi") == 0;
+  switch (phase) {
+    case NetPhase::Connecting: ui::showStatus("Connecting", detail); break;
+    case NetPhase::Clock: ui::showStatus("Syncing clock", "NTP"); break;
+    case NetPhase::Registering: ui::showStatus("Registering", detail); break;
+    case NetPhase::Failed:
+      ui::showStatus(wifiFailed ? "Wi-Fi failed" : "Clock failed",
+                     wifiFailed ? "Check the password and try again"
+                                : "NTP unreachable; TLS cannot verify");
+      break;
+    default: break;
   }
 }
 
@@ -381,22 +475,30 @@ void setup() {
   return;
 #endif
 
-  api::setYield(uiYield);
+  gStateMutex = xSemaphoreCreateMutex();
   gImprov.begin(Serial, "Rotary Stats", "rotary-stats", FW_VERSION, "ESP32-S3");
   gImprov.setNextUrl([]() { return settings::configUrl(); });
   gImprov.setConnectHandler([](const String& ssid, const String& pass) {
-    if (!bringUpNetwork(ssid, pass)) {
-      ui::showStatus("Wi-Fi failed", "Check the password and try again");
-      return false;
+    // Hand the work to the network task and wait here. Only LVGL is pumped:
+    // the browser is blocked on this RPC result so Improv has nothing to
+    // answer, and re-entering gImprov.loop() from its own callback would be
+    // reentrant.
+    gReqSsid = ssid;
+    gReqPass = pass;
+    gConnectResult = -1;
+    gConnectRequested = true;
+
+    const uint32_t deadline = millis() + 60000UL;
+    while (gConnectResult < 0 && static_cast<int32_t>(deadline - millis()) > 0) {
+      serviceUi();
+      lv_timer_handler();
+      delay(10);
     }
-    settings::saveWifi(ssid, pass);
-    pollNow();
-    return true;
+    return gConnectResult == 1;
   });
 
-  if (settings::hasWifi() && bringUpNetwork(settings::ssid(), settings::password())) {
+  if (settings::hasWifi()) {
     gImprov.setState(ImprovSerial::STATE_PROVISIONED);
-    pollNow();
   } else {
     gImprov.setState(ImprovSerial::STATE_AUTHORIZED);
     String host = settings::baseUrl();
@@ -405,6 +507,9 @@ void setup() {
     Serial.printf("[ui] setup screen: %s\n", host.c_str());
     ui::showSetup(host.c_str());
   }
+
+  // Networking lives on core 0 so core 1 never stalls on it.
+  xTaskCreatePinnedToCore(netTask, "net", 8192, nullptr, 1, nullptr, 0);
 }
 
 void loop() {
@@ -427,6 +532,7 @@ void loop() {
   }
 
   serviceLeds(millis());
+  serviceUi();
 
   // Heartbeat + input echo, so the demo build can be diagnosed over serial
   // without being able to see the panel.
@@ -449,14 +555,7 @@ void loop() {
   switchWas = switchNow;
 
 #ifndef DEMO_MODE
-  const uint32_t now = millis();
-  if (gStats.valid || gRegistered) {
-    if (now - gLastPoll > 60000UL) {
-      gLastPoll = now;
-      pollNow();
-    }
-  }
-  ui::tick(now);
+  ui::tick(millis());
 #endif
 
   delay(4);

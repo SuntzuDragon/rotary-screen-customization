@@ -294,3 +294,31 @@ board, so the screen returning to the boot sequence at that moment is expected
 behaviour, not a failure. It is also why Improv must be answered from inside the
 blocking network path (see `uiYield`) -- the browser starts probing while the
 device is still booting from the reset that the probe itself caused.
+
+## 14. Networking belongs on core 0, not in loop()
+
+Doing Wi-Fi association, NTP and TLS inside `setup()`/`loop()` caused three
+separate symptoms that all looked like different bugs:
+
+- the panel froze on whatever was last flushed (no LVGL pump during the wait),
+- Improv went unanswered for seconds, so the browser reported "no Improv device
+  answered" — while itself having *caused* the reboot it was probing across,
+- the device looked stuck on "Registering", because that was simply the last
+  screen drawn before a multi-second blocking HTTPS call.
+
+`HTTPClient` offers no way to yield from inside a request, so no amount of
+pumping fixes it from the outside. The fix is structural: all networking runs on
+a task pinned to **core 0**, and core 1 runs only LVGL, Improv and the encoder.
+State crosses between them through a mutex-guarded snapshot, and the Improv
+connect handler hands credentials to the task and waits while pumping LVGL only
+(re-entering `gImprov.loop()` from inside its own callback would be reentrant).
+
+Proof it works: `[alive]` heartbeats now interleave with `[net]` lines during
+boot, where before they only began once every network step had finished.
+
+Two details worth keeping:
+
+- A `304` response must not blank the display. The task seeds each poll from the
+  previous snapshot, so an unchanged response leaves the stats intact.
+- Once stats are on screen, a later phase change must never replace them with a
+  status card — otherwise a transient reconnect wipes a working display.
