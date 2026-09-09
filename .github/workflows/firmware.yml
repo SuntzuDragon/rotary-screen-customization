@@ -123,6 +123,25 @@ jobs:
 
           npx wrangler kv key put "fw:bin:$VERSION" --binding DEVICES --remote --path "$BIN"
 
+          # Wait until the image is actually downloadable before advertising it.
+          #
+          # A successful KV put only means the write was accepted; it can take
+          # up to a minute to be readable from every edge. The D1 row is
+          # instant, so without this the dropdown could offer a version whose
+          # download 404s. (That fails safe -- the flash never starts -- but it
+          # looks broken.)
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://hdog.imcb.dev/api/firmware/merged.bin?v=$VERSION" || true)
+            echo "  image readable check $i: HTTP $code"
+            [ "$code" = "200" ] && break
+            if [ "$i" = "30" ]; then
+              echo "image never became readable; not publishing the index row"
+              exit 1
+            fi
+            sleep 5
+          done
+
           npx wrangler d1 execute rotary-stats --remote --command "
             INSERT INTO firmware (version, sha256, size, source, uploaded_at)
             VALUES ('$VERSION', '$SHA', $SIZE, 'ci', $NOW)
