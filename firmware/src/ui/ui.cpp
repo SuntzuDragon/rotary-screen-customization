@@ -134,26 +134,6 @@ void positionDots(lv_obj_t* parent, lv_coord_t radius) {
 /* ------------------------------- decks ------------------------------- */
 
 void buildSummary() {
-  // Year-progress arc, giving the contribution count a frame of reference.
-  // Sized to kContentR so it clears the dot band -- it used to sit at the same
-  // radius as the dots and cut straight through them.
-  lv_obj_t* ring = lv_arc_create(gRoot);
-  lv_obj_set_size(ring, kContentR * 2, kContentR * 2);
-  lv_obj_center(ring);
-  lv_arc_set_rotation(ring, 270);
-  lv_arc_set_bg_angles(ring, 0, 360);
-  lv_obj_remove_style(ring, nullptr, LV_PART_KNOB);
-  lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_arc_width(ring, 4, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(ring, 4, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(ring, lv_color_hex(0x1E242B), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(ring, gAccent, LV_PART_INDICATOR);
-
-  const time_t now = time(nullptr);
-  struct tm tmv;
-  gmtime_r(&now, &tmv);
-  lv_arc_set_value(ring, (tmv.tm_yday * 100) / 365);
-
   char buf[32];
   compact(gStats.contrib, buf, sizeof(buf));
   label(gRoot, buf, &lv_font_montserrat_48, lv_color_white(), -8);

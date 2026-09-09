@@ -54,15 +54,6 @@ function dim(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-function arc(ctx: Ctx2D, radius: number, from: number, to: number, width: number, color: string) {
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = 'butt';
-  ctx.arc(CX, CY, radius, from, to);
-  ctx.stroke();
-}
-
 /**
  * Position indicator near 6 o'clock, mirroring the firmware.
  *
@@ -127,15 +118,6 @@ function frame(ctx: Ctx2D, bg: string) {
 
 function deckSummary(ctx: Ctx2D, d: DevicePayload) {
   const { accent } = d.theme;
-
-  // Bezel: progress through the calendar year. Always meaningful, and it gives
-  // the contribution number a frame of reference.
-  const now = new Date();
-  const start = Date.UTC(now.getUTCFullYear(), 0, 1);
-  const end = Date.UTC(now.getUTCFullYear() + 1, 0, 1);
-  const frac = (Date.now() - start) / (end - start);
-  arc(ctx, CONTENT_R, 0, TAU, 3, 'rgba(255,255,255,0.07)');
-  arc(ctx, CONTENT_R, TOP, TOP + TAU * frac, 3, accent);
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';

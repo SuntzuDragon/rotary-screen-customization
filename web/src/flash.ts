@@ -26,7 +26,9 @@ export async function flashFirmware(
 
   const terminal = {
     clean: () => {},
-    writeLine: (data: string) => hooks.log(data),
+    // writeLine is a complete line; write is a raw fragment. Treating both as
+    // fragments ran the whole log together on one line.
+    writeLine: (data: string) => hooks.log(`${data}\n`),
     write: (data: string) => hooks.log(data),
   };
 
