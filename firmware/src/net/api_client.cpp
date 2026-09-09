@@ -52,7 +52,16 @@ namespace api {
 bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs) {
   if (ssid.isEmpty()) return false;
   devlog::logf("[net] wifi connecting to \"%s\"\n", ssid.c_str());
+
+  // Start from a clean radio state. After a reset the previous association can
+  // linger in the driver and the next WiFi.begin() takes minutes to succeed
+  // instead of seconds -- measured at ~105s on this board. Tearing the old
+  // session down first makes association consistently quick.
+  WiFi.persistent(false);
+  WiFi.disconnect(true, true);
+  delay(100);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);  // a desk display has no reason to power-save the radio
   WiFi.begin(ssid.c_str(), password.c_str());
 
   const uint32_t start = millis();
