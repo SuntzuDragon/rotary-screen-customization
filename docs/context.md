@@ -268,6 +268,51 @@ and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 
 - Nothing outstanding on the config path — see *Instant push over USB* below.
 
+### One page, and one answer about the cable
+
+The site was three views — landing, provisioning, settings — and the split cost
+more than it saved. You could not see what the product did until after setting
+one up, and **three separate cards each owned their own connect button** for the
+same serial port without telling each other: connecting from the Wi-Fi card left
+the push card still saying "not connected", and flashing closed the port behind
+both. The page also never showed *which* dial it was editing — the id lived in
+`localStorage` and was never displayed.
+
+Now:
+
+- **`improv.ts` owns the connection** and emits a change event. Nothing else
+  opens or closes the port except the bar and the flasher. `onConnectionChange`
+  is the single source of truth for the cable; D1 remains the single source of
+  truth for config. Pulling the cable fires `navigator.serial`'s `disconnect`,
+  so a yanked lead stops the page claiming a link that is gone.
+- **A sticky device bar** names the linked dial, its account, when it was last
+  seen and which network it is on — and warns when the cable is in a *different*
+  dial than the page is editing, offering to switch.
+- **Settings live in a `<fieldset disabled>`** until a dial is linked. A
+  fieldset rather than a dimmed div: opacity alone is a lie, since you can still
+  tab into a greyed-out input and type.
+- **Unlinked renders a sample dial** (`demo.ts`), so the page demonstrates
+  itself instead of showing an empty circle.
+- **Provisioning is just the Wi-Fi card** in setup mode. First-time setup and
+  changing networks were the same three fields on two screens; that duplication
+  is what made a network change feel destructive.
+
+Watch out for one trap that cost a debugging round: `.bar` was already the
+flashing progress track (`height: 6px`), so the new device bar collapsed until
+it was renamed `.devbar`.
+
+### Holding the knob names the dial
+
+A short press advances a section; holding for 700ms shows device id, firmware
+version and flash date. The action moved to *release*, because the two gestures
+are only distinguishable once you know how long the button was down — and a long
+press must not also advance the section on the way out.
+
+The flash date is recorded by `settings::noteVersion()`, called after the NTP
+sync rather than in `begin()`: the first boot of a new version stamps the time,
+later boots of the same one leave it alone, so it reads as "flashed at" rather
+than "started at".
+
 ### Wi-Fi is editable, not re-setup
 
 Changing networks used to mean a factory reset and starting over, because Wi-Fi
