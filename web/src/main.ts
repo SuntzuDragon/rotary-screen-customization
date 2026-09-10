@@ -13,7 +13,13 @@ import {
   type Connection,
 } from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
-import { DEFAULT_ACCENT, type DeckId, type DeviceConfig, type DevicePayload } from './types';
+import {
+  DEFAULT_ACCENT,
+  MAX_DEVICE_REPOS,
+  type DeckId,
+  type DeviceConfig,
+  type DevicePayload,
+} from './types';
 
 const DECK_LABEL: Record<DeckId, string> = {
   summary: 'Summary dial',
@@ -140,7 +146,7 @@ function wifiCard(ctx: PageContext) {
   const chosenSsid = () => (manual ? manual.value.trim() : select.value);
 
   /** Setup mode: a dial is on the cable but this page is not linked to one. */
-  const setupMode = () => Boolean(!ctx.session && liveConnection());
+  const setupMode = () => Boolean(!ctx.session && liveConnection()?.responsive);
 
   const loadNetworks = async (conn: Connection) => {
     if (scannedFor === conn) return;
@@ -189,13 +195,16 @@ function wifiCard(ctx: PageContext) {
           ? note(`On ${ssid}${typeof rssi === 'number' ? ` · ${rssi} dBm` : ''}.`, 'ok')
           : note('The dial has not reported a network yet. It reports one each time it checks in.'),
     );
-    blurb.textContent = conn
-      ? 'Changing networks keeps everything else — the dial keeps its identity and settings.'
-      : 'Changing networks needs the cable, since the password never goes through the ' +
-        'internet. Connect over USB at the top of the page.';
+    blurb.textContent = !conn
+      ? 'Changing networks needs the cable, since the password never goes through the ' +
+        'internet. Connect over USB at the top of the page.'
+      : conn.responsive
+        ? 'Changing networks keeps everything else — the dial keeps its identity and settings.'
+        : 'The dial is not answering over the cable, so it cannot be told about a network. ' +
+          'Reflashing below is the usual way back.';
     changeBtn.hidden = !ctx.session;
-    changeBtn.disabled = !conn;
-    if (!conn) {
+    changeBtn.disabled = !conn?.responsive;
+    if (!conn?.responsive) {
       form.hidden = true;
       scannedFor = null;
     }
@@ -321,13 +330,18 @@ function firmwareCard(session: api.Session | null) {
    */
   const cableNote = el('p', { class: 'muted' });
   const paintCable = () => {
+    const conn = liveConnection();
     cableNote.textContent = !serialSupported()
       ? 'Flashing needs Web Serial — use desktop Chrome, Edge, or Opera.'
-      : liveConnection()
-        ? 'Cable attached — flashing will use it, and the dial comes back on its own.'
+      : conn
+        ? conn.responsive
+          ? 'Cable attached — flashing will use it, and the dial comes back on its own.'
+          : 'Cable attached. The dial is not answering, which is exactly what flashing fixes.'
         : 'Flashing goes over the cable, never the network. Connect over USB at the top ' +
-          'of the page, or press Flash and pick the port when asked — a dial too broken ' +
-          'to answer still flashes this way.';
+          'of the page first.';
+    // The port is picked once, in the bar. Offering a second way in here is
+    // what made it unclear which button connects what.
+    flashBtn.disabled = !liveConnection() || fwSelect.value === '';
   };
   paintCable();
   onConnectionChange(paintCable);
@@ -359,7 +373,6 @@ function firmwareCard(session: api.Session | null) {
         return;
       }
 
-      flashBtn.disabled = false;
       const keep = fwSelect.value;
       fwSelect.replaceChildren(
         ...versions.map((v) => {
@@ -390,6 +403,7 @@ function firmwareCard(session: api.Session | null) {
     } catch (err) {
       fwStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
     }
+    paintCable();
   };
   void paint();
 
@@ -413,11 +427,10 @@ function firmwareCard(session: api.Session | null) {
       // one already open rather than closing it and asking again: prompting
       // for a device the page is currently showing as connected is a poor way
       // to start something destructive.
-      const held = liveConnection() ? await takePort() : null;
-      if (held) logLine('using the cable already connected\n');
-      fwStatus.replaceChildren(
-        note(held ? 'Keep it plugged in…' : 'Pick the device port, then keep it plugged in…'),
-      );
+      const held = await takePort();
+      if (!held) throw new Error('The cable is no longer connected — reconnect at the top.');
+      logLine('using the cable connected at the top of the page\n');
+      fwStatus.replaceChildren(note('Keep it plugged in…'));
 
       await flashFirmware(
         image,
@@ -449,7 +462,9 @@ function firmwareCard(session: api.Session | null) {
         note(`${msg} — the device may need flashing again before it boots.`, 'err'),
       );
     }
-    flashBtn.disabled = false;
+    // takePort() ended the shared connection, so re-derive the gate rather
+    // than just enabling the button: the cable now needs reconnecting.
+    paintCable();
   };
 
   fwUpload.onclick = async () => {
@@ -560,10 +575,26 @@ function deviceBar(ctx: PageContext) {
     const session = ctx.session;
     const mismatch = Boolean(session && attached && attached !== session.id);
 
-    dot.className = `dot ${conn ? (mismatch ? 'dot-warn' : 'dot-ok') : session ? 'dot-idle' : 'dot-off'}`;
+    const tone = conn
+      ? mismatch || !conn.responsive
+        ? 'dot-warn'
+        : 'dot-ok'
+      : session
+        ? 'dot-idle'
+        : 'dot-off';
+    dot.className = `dot ${tone}`;
     extra.hidden = !mismatch;
     action.textContent = conn ? 'Disconnect' : 'Connect over USB';
     action.disabled = !serialSupported();
+
+    if (conn && !conn.responsive) {
+      title.textContent = 'Cable attached — no answer';
+      detail.textContent =
+        'The port is open but the dial is not talking. Flashing still works; ' +
+        'setting up Wi-Fi does not.';
+      status.replaceChildren();
+      return;
+    }
 
     if (!session) {
       title.textContent = conn ? 'Dial attached, not set up yet' : 'No dial linked yet';
@@ -944,35 +975,118 @@ async function page(session: api.Session | null) {
     if (/^[\w-]{1,39}$/.test(v)) edit({ login: v, repos: null });
   };
 
-  /* repo picker */
+  /*
+   * Repo picker: which cards the dial shows, and in what order.
+   *
+   * The dial holds MAX_DEVICE_REPOS of them -- a fixed array in the firmware --
+   * and used to simply drop the rest on arrival, so picking twelve silently
+   * showed eight and there was no way to say which eight. The cap is a visible
+   * part of the control now, and the chosen ones can be dragged into order.
+   */
+  const repoCount = el('div', { class: 'status' });
   const repoList = el('div', { class: 'rows' }, note('Loading repos…'));
+  let allRepos: { name: string; stars: number }[] = [];
+
+  /** Chosen names in display order. `null` means "the top ones, automatically". */
+  const chosen = (): string[] =>
+    draft.repos ?? allRepos.slice(0, MAX_DEVICE_REPOS).map((r) => r.name);
+
+  /** Any deliberate edit fixes the list; auto-follow ends at the first one. */
+  const setChosen = (names: string[]) => {
+    edit({ repos: names.slice(0, MAX_DEVICE_REPOS) });
+    renderRepos();
+  };
+
+  let dragging: string | null = null;
+
+  function renderRepos() {
+    if (allRepos.length === 0) {
+      repoList.replaceChildren(note('This account has no repos to show.'));
+      return;
+    }
+    const picked = chosen();
+    const auto = draft.repos === null;
+    const rest = allRepos.filter((r) => !picked.includes(r.name));
+
+    repoCount.replaceChildren(
+      note(
+        `${picked.length} of ${MAX_DEVICE_REPOS} — ${
+          auto
+            ? 'the most-starred, kept up to date as repos come and go. Reorder or ' +
+              'untick one to choose for yourself.'
+            : 'drag to reorder. The dial shows them in this order.'
+        }`,
+        auto ? 'info' : 'ok',
+      ),
+    );
+
+    const row = (name: string, stars: number, isPicked: boolean) => {
+      const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+      cb.checked = isPicked;
+      cb.disabled = !isPicked && picked.length >= MAX_DEVICE_REPOS;
+      cb.onchange = () =>
+        setChosen(isPicked ? picked.filter((n) => n !== name) : [...picked, name]);
+
+      const r = el(
+        'label',
+        { class: `row${isPicked ? ' row-pick' : ''}` },
+        cb,
+        el('span', {}, name),
+        el('span', { class: 'tag' }, `★ ${stars}`),
+      );
+
+      // Only chosen rows are draggable: there is no order to give the others.
+      if (isPicked && picked.length > 1) {
+        r.prepend(el('span', { class: 'grip', title: 'Drag to reorder' }, '⠿'));
+        r.draggable = true;
+        r.ondragstart = (ev) => {
+          dragging = name;
+          r.classList.add('dragging');
+          ev.dataTransfer?.setData('text/plain', name);
+        };
+        r.ondragend = () => {
+          dragging = null;
+          r.classList.remove('dragging');
+        };
+        r.ondragover = (ev) => {
+          if (!dragging || dragging === name) return;
+          ev.preventDefault();
+          r.classList.add('drop-target');
+        };
+        r.ondragleave = () => r.classList.remove('drop-target');
+        r.ondrop = (ev) => {
+          ev.preventDefault();
+          r.classList.remove('drop-target');
+          if (!dragging || dragging === name) return;
+          const next = picked.filter((n) => n !== dragging);
+          next.splice(next.indexOf(name), 0, dragging);
+          setChosen(next);
+        };
+      }
+      return r;
+    };
+
+    repoList.replaceChildren(
+      ...picked.map((n) => {
+        const meta = allRepos.find((r) => r.name === n);
+        return row(n, meta?.stars ?? 0, true);
+      }),
+      ...(rest.length
+        ? [el('div', { class: 'rows-divider' }, `not shown (${rest.length})`)]
+        : []),
+      ...rest.map((r) => row(r.name, r.stars, false)),
+    );
+  }
+
   if (!session) repoList.replaceChildren(note('Link a dial to choose which repos it shows.'));
   else
     api
       .getRepos(session)
-    .then(({ repos }) => {
-      repoList.replaceChildren(
-        ...repos.map((r) => {
-          const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
-          cb.checked = draft.repos === null || draft.repos.includes(r.name);
-          cb.onchange = async () => {
-            const checked = [...repoList.querySelectorAll('input:checked')].map(
-              (n) => (n as HTMLElement).dataset.name!,
-            );
-            edit({ repos: checked });
-          };
-          cb.dataset.name = r.name;
-          return el(
-            'label',
-            { class: 'row' },
-            cb,
-            el('span', {}, r.name),
-            el('span', { class: 'tag' }, `★ ${r.stars}`),
-          );
-        }),
-      );
-    })
-    .catch(() => repoList.replaceChildren(note('Could not load repos.', 'err')));
+      .then(({ repos }) => {
+        allRepos = repos.map((r) => ({ name: r.name, stars: r.stars }));
+        renderRepos();
+      })
+      .catch(() => repoList.replaceChildren(note('Could not load repos.', 'err')));
 
   const bright = el('input', {
     type: 'range',
@@ -1103,6 +1217,12 @@ async function page(session: api.Session | null) {
     refreshBtn.disabled = false;
   };
 
+  // Settle every derived control once, now that they all exist: the push
+  // button starts disabled with "matches these settings" rather than inviting
+  // a push of nothing, and a reload that restores form values is reconciled
+  // against what the dial actually has.
+  refreshDirty();
+
   /*
    * One object describing what this render is looking at, handed to the pieces
    * that need to agree about it. The bar and the Wi-Fi card both have to know
@@ -1162,7 +1282,7 @@ async function page(session: api.Session | null) {
       ),
       loginInput,
     ),
-    el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
+    el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoCount, repoList),
     el(
       'section',
       { class: 'card' },

@@ -25,7 +25,7 @@ import {
   putUserToken,
 } from './store';
 import { decryptSecret, encryptSecret, safeEqual, sha256Hex } from './crypto';
-import { ALL_DECKS, defaultConfig } from './types';
+import { ALL_DECKS, MAX_DEVICE_REPOS, defaultConfig } from './types';
 import type { DeckId, DeviceConfig, Env, Theme } from './types';
 
 /** New identities per hour, account-wide. A real device registers once. */
@@ -128,7 +128,7 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
     // GitHub caps repository names at 100 characters; anything longer is
     // padding aimed at the D1 row this gets stringified into.
     if ((b.repos as string[]).some((r) => r.length > 100)) return 'repo name too long';
-    repos = (b.repos as string[]).slice(0, 20);
+    repos = (b.repos as string[]).slice(0, MAX_DEVICE_REPOS);
   }
 
   let decks = current.decks;

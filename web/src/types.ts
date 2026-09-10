@@ -1,5 +1,11 @@
 /** Mirrors worker/src/types.ts DevicePayload. Keep the two in step. */
 
+/**
+ * How many repo cards the dial can hold. Mirrors MAX_DEVICE_REPOS in
+ * worker/src/types.ts and kMaxRepos in firmware/src/model/stats.h.
+ */
+export const MAX_DEVICE_REPOS = 8;
+
 /** Matches DEFAULT_THEME.accent in worker/src/types.ts. */
 export const DEFAULT_ACCENT = '#F74C00';
 

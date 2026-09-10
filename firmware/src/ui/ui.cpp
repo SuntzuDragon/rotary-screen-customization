@@ -33,6 +33,8 @@ struct Card {
 constexpr uint8_t kMaxCards = 2 + kMaxRepos;
 Card gCards[kMaxCards];
 uint8_t gCardCount = 0;
+/** True while the held-knob badge is covering the card. */
+bool gAboutActive = false;
 uint8_t gCursor = 0;
 uint32_t gLastAdvance = 0;
 
@@ -413,6 +415,7 @@ void setStats(const Stats& s) {
 }
 
 void onRotate(int delta) {
+  if (gAboutActive) return;  // the knob is being held, not turned
   if (!gHasStats || gCardCount == 0) return;
   gCursor = static_cast<uint8_t>((gCursor + delta + gCardCount) % gCardCount);
   gLastAdvance = millis();
@@ -421,6 +424,7 @@ void onRotate(int delta) {
 
 /** Jump to the first card of the next section. */
 void onPress() {
+  if (gAboutActive) return;
   if (!gHasStats || gCardCount == 0) return;
   const uint8_t curDeck = gCards[gCursor].deck;
   for (uint8_t step = 1; step <= gCardCount; step++) {
@@ -440,6 +444,7 @@ bool showAbout(const char* deviceId, uint32_t flashedAt) {
   // remember them.
   if (!gHasStats || gCardCount == 0) return false;
 
+  gAboutActive = true;
   resetRoot();
   label(gRoot, "THIS DIAL", &lv_font_montserrat_12, gAccent, -60);
   label(gRoot, deviceId, &lv_font_montserrat_28, lv_color_white(), -28);
@@ -462,9 +467,17 @@ bool showAbout(const char* deviceId, uint32_t flashedAt) {
   return true;
 }
 
-void hideAbout() { redraw(); }
+void hideAbout() {
+  gAboutActive = false;
+  // Restart the dwell, so letting go does not immediately advance a card that
+  // was already most of the way through its interval when the badge went up.
+  gLastAdvance = millis();
+  redraw();
+}
 
 void tick(uint32_t nowMs) {
+  // Auto-advance must not run the badge off the screen while it is being read.
+  if (gAboutActive) return;
   if (!gHasStats || gStats.rotSec == 0 || gCardCount == 0) return;
   if (nowMs - gLastAdvance < gStats.rotSec * 1000UL) return;
   gLastAdvance = nowMs;

@@ -1,9 +1,10 @@
-import type {
-  DerivedEvent,
-  DeviceConfig,
-  DevicePayload,
-  PayloadRepo,
-  Snapshot,
+import {
+  MAX_DEVICE_REPOS,
+  type DerivedEvent,
+  type DeviceConfig,
+  type DevicePayload,
+  type PayloadRepo,
+  type Snapshot,
 } from './types';
 
 /** GitHub event type -> short kind understood by the firmware. */
@@ -72,7 +73,10 @@ export function buildPayload(
       .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
   }
 
-  const payloadRepos: PayloadRepo[] = repos.map((r) => ({
+  // The dial only has room for this many, and quietly kept the first ones.
+  // Cutting here makes the limit visible in the payload the page previews,
+  // rather than a surprise that happens on the device.
+  const payloadRepos: PayloadRepo[] = repos.slice(0, MAX_DEVICE_REPOS).map((r) => ({
     n: r.name,
     s: r.stars,
     f: r.forks,

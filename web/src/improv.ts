@@ -8,6 +8,11 @@ export interface Connection {
   improv: ImprovRaw;
   /** The underlying port, so a disconnect event can be matched to it. */
   port: SerialPort;
+  /**
+   * Whether the dial answered Improv. False still means an open port -- enough
+   * to flash, not enough to provision or push.
+   */
+  responsive: boolean;
   info: { name: string; firmware: string; version: string; chipFamily: string };
   nextUrl?: string;
   close: () => Promise<void>;
@@ -58,19 +63,38 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
     state = await improv.currentState(4000);
   }
 
+  /*
+   * A dial that will not answer still gets a connection.
+   *
+   * Flashing needs the port and nothing else, and the dial most in need of
+   * reflashing is precisely the one that has stopped talking. Failing here
+   * would put the only connect button on the page out of reach at exactly the
+   * wrong moment. So report the silence and hand back the open port; the cards
+   * that need a conversation check `responsive` themselves.
+   */
   if (!state) {
-    await improv.stop();
-    await port.close().catch(() => {});
-    throw new Error(
-      'The device did not answer. Unplug it, plug it back in, wait for the screen, ' +
-        'then try again — and make sure no other tab or serial monitor has the port.',
-    );
+    return {
+      improv,
+      port,
+      responsive: false,
+      info: {
+        firmware: 'unknown',
+        version: '?',
+        chipFamily: 'ESP32-S3',
+        name: 'Unresponsive device',
+      },
+      close: async () => {
+        await improv.stop();
+        await port.close().catch(() => {});
+      },
+    };
   }
 
   const info = await improv.deviceInfo();
   return {
     improv,
     port,
+    responsive: true,
     info: {
       firmware: info[0] ?? 'rotary-stats',
       version: info[1] ?? '?',

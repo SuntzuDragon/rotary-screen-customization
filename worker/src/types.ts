@@ -11,6 +11,13 @@ export type DeckId = 'summary' | 'repos' | 'activity';
 
 export const ALL_DECKS: DeckId[] = ['summary', 'repos', 'activity'];
 
+/**
+ * How many repo cards the dial can hold. Mirrors kMaxRepos in
+ * firmware/src/model/stats.h -- the device has a fixed array, and anything past
+ * it was silently dropped on arrival. Keep the two in step.
+ */
+export const MAX_DEVICE_REPOS = 8;
+
 export interface Theme {
   accent: string;
   bg: string;
