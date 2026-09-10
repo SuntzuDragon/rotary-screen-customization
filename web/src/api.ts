@@ -75,16 +75,15 @@ export interface FirmwareIndex {
   versions: FirmwareMeta[];
 }
 
+export interface DeviceState {
+  fwVersion: string | null;
+  lastSeen: number;
+  wifiSsid?: string | null;
+  wifiRssi?: number | null;
+}
+
 export const getStatus = (s: Session) =>
-  call<{
-    device: {
-      fwVersion: string | null;
-      lastSeen: number;
-      wifiSsid?: string | null;
-      wifiRssi?: number | null;
-    } | null;
-    firmware: FirmwareIndex | null;
-  }>(s, 'status');
+  call<{ device: DeviceState | null; firmware: FirmwareIndex | null }>(s, 'status');
 
 /** Public firmware list — no session needed, so flashing never depends on one. */
 export async function listFirmware(s?: Session | null): Promise<FirmwareIndex> {

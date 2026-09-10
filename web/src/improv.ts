@@ -6,6 +6,8 @@ export const serialSupported = () => 'serial' in navigator;
 
 export interface Connection {
   improv: ImprovRaw;
+  /** The underlying port, so a disconnect event can be matched to it. */
+  port: SerialPort;
   info: { name: string; firmware: string; version: string; chipFamily: string };
   nextUrl?: string;
   close: () => Promise<void>;
@@ -68,6 +70,7 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
   const info = await improv.deviceInfo();
   return {
     improv,
+    port,
     info: {
       firmware: info[0] ?? 'rotary-stats',
       version: info[1] ?? '?',
@@ -92,6 +95,34 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
  * afterwards (pushing settings, in particular) is immediate.
  */
 let live: Connection | null = null;
+let livePort: SerialPort | null = null;
+
+/**
+ * Everything that cares about the cable subscribes here rather than keeping its
+ * own idea of the state.
+ *
+ * There used to be three buttons on the page that each opened or closed this
+ * one connection, and none of them told the others. Connecting from the Wi-Fi
+ * card left the push card still saying "not connected"; flashing closed the
+ * port and neither noticed. One value, one event.
+ */
+type Listener = () => void;
+const listeners = new Set<Listener>();
+
+export function onConnectionChange(fn: Listener): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+function announce() {
+  for (const fn of [...listeners]) {
+    try {
+      fn();
+    } catch {
+      /* a listener throwing must not stop the others hearing about it */
+    }
+  }
+}
 
 export const liveConnection = () => live;
 
@@ -101,13 +132,17 @@ export async function openShared(
   if (live) return live;
   const conn = await connect(onStatus);
   const inner = conn.close;
+  livePort = conn.port;
   live = {
     ...conn,
     close: async () => {
       live = null;
+      livePort = null;
+      announce();
       await inner();
     },
   };
+  announce();
   return live;
 }
 
@@ -115,7 +150,22 @@ export async function openShared(
 export async function closeShared() {
   const conn = live;
   live = null;
+  livePort = null;
+  if (conn) announce();
   await conn?.close().catch(() => {});
+}
+
+// Pulling the cable is the most likely way this connection ends, and it happens
+// without anyone calling close(). Without this the page would go on offering a
+// Disconnect button for a device that is no longer there.
+if (typeof navigator !== 'undefined' && 'serial' in navigator) {
+  navigator.serial.addEventListener('disconnect', (event) => {
+    if (livePort && (event as unknown as { target: SerialPort }).target === livePort) {
+      live = null;
+      livePort = null;
+      announce();
+    }
+  });
 }
 
 export async function provision(

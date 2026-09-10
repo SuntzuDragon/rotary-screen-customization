@@ -49,6 +49,28 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
   padding: 18px;
 }
 .stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* Fieldsets are used purely to disable a group of controls at once, so strip
+   the browser's box off them. min-width:0 stops them refusing to shrink. */
+.fs { border: 0; padding: 0; margin: 0; min-width: 0; }
+.fs[disabled] { opacity: 0.45; }
+/* Opacity is the hint; the disabled attribute is what actually stops input. */
+.fs[disabled] .card { background: #101318; }
+
+/* device bar -- NOT .bar, which is already the flashing progress track */
+.devbar { position: sticky; top: 0; z-index: 5; }
+.devbar-row { display: flex; align-items: center; gap: 12px; }
+.devbar-text { flex: 1; min-width: 0; }
+.devbar-title { font-weight: 600; font-size: 14px; }
+.devbar-detail { color: var(--muted); font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
+.devbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.devbar-actions button { padding: 8px 12px; font-size: 13px; }
+
+.dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; }
+.dot-ok { background: #66d19e; box-shadow: 0 0 0 3px rgba(102, 209, 158, 0.15); }
+.dot-idle { background: var(--accent); }
+.dot-warn { background: #ffb03c; box-shadow: 0 0 0 3px rgba(255, 176, 60, 0.15); }
+.dot-off { background: var(--line); }
 /* .stack and .rows set display, which would otherwise beat the hidden
    attribute's UA rule. */
 [hidden] { display: none !important; }

@@ -1,14 +1,15 @@
-import { applyAccent, resetAccent } from './accent';
+import { applyAccent } from './accent';
 import * as api from './api';
+import { DEMO_CONFIG, demoPayload } from './demo';
 import { flashFirmware } from './flash';
 import {
   closeShared,
   liveConnection,
+  onConnectionChange,
   openShared,
   provision,
   serialSupported,
   type Connection,
-  type Ssid,
 } from './improv';
 import { SIZE, buildCards, nextSection, render, type Card } from './render';
 import { DEFAULT_ACCENT, type DeckId, type DeviceConfig, type DevicePayload } from './types';
@@ -93,20 +94,23 @@ function note(msg: string, kind: 'err' | 'ok' | 'info' = 'info') {
 
 
 /**
- * Wi-Fi card. Changing networks is an edit, not a re-setup.
+ * Wi-Fi card. Also the setup step.
  *
- * Credentials only ever travel over USB -- pushing them through the service
- * would mean a wrong password leaves the device off the network and out of
- * reach of the very channel that could fix it. So this needs the cable, but it
- * needs nothing else: the device keeps its identity, so the session, settings
- * and history all survive a network change.
+ * First-time provisioning and changing networks were separate screens with the
+ * same three fields, which is what made changing a network feel like starting
+ * over. They are one control now: an unlinked dial gets the form directly, a
+ * linked one gets it behind "Change network".
  *
- * The network it is *currently* on comes back the other way, from the device's
- * own polls, so the card can say where things stand with nothing plugged in.
+ * Credentials only ever travel over USB, deliberately -- pushing them through
+ * the service would mean a wrong password leaves the dial off the network and
+ * out of reach of the one channel that could fix it. The cable itself is opened
+ * from the bar at the top; this card never opens or closes it.
  */
-function wifiCard(session: api.Session) {
+function wifiCard(ctx: PageContext) {
+  const heading = el('h2', {}, 'Wi-Fi');
   const current = el('div', { class: 'status' });
-  const changeBtn = el('button', { class: 'ghost' }, 'Change network');
+  const blurb = el('p', { class: 'muted' });
+  const changeBtn = el('button', { class: 'ghost' }, 'Change network') as HTMLButtonElement;
 
   const select = el('select', { class: 'input' }) as HTMLSelectElement;
   const password = el('input', {
@@ -114,8 +118,8 @@ function wifiCard(session: api.Session) {
     type: 'password',
     placeholder: 'Wi-Fi password',
   }) as HTMLInputElement;
-  const go = el('button', { class: 'primary' }, 'Connect to this network') as HTMLButtonElement;
-  const cancel = el('button', { class: 'ghost' }, 'Cancel');
+  const go = el('button', { class: 'primary' }, 'Join this network') as HTMLButtonElement;
+  const cancel = el('button', { class: 'ghost' }, 'Cancel') as HTMLButtonElement;
   const status = el('div', { class: 'status' });
   const form = el(
     'div',
@@ -131,28 +135,15 @@ function wifiCard(session: api.Session) {
   form.hidden = true;
 
   let manual: HTMLInputElement | null = null;
+  let scannedFor: Connection | null = null;
   const chosenSsid = () => (manual ? manual.value.trim() : select.value);
 
-  const showCurrent = async () => {
-    try {
-      const st = await api.getStatus(session);
-      const ssid = st.device?.wifiSsid;
-      const rssi = st.device?.wifiRssi;
-      current.replaceChildren(
-        ssid
-          ? note(`On ${ssid}${typeof rssi === 'number' ? ` · ${rssi} dBm` : ''}.`, 'ok')
-          : note(
-              'The device has not reported a network yet. It reports one each time it ' +
-                'checks in.',
-            ),
-      );
-    } catch {
-      current.replaceChildren(note('Could not read the device status.', 'err'));
-    }
-  };
-  void showCurrent();
+  /** Setup mode: a dial is on the cable but this page is not linked to one. */
+  const setupMode = () => Boolean(!ctx.session && liveConnection());
 
   const loadNetworks = async (conn: Connection) => {
+    if (scannedFor === conn) return;
+    scannedFor = conn;
     select.replaceChildren(el('option', { value: '' }, 'Scanning…'));
     try {
       const ssids = await conn.improv.scan();
@@ -163,39 +154,72 @@ function wifiCard(session: api.Session) {
         ),
       );
     } catch {
-      // A device that cannot scan can still be told. Same fallback as setup.
+      // A dial that cannot scan can still be told. Same fallback as before.
       manual = el('input', { class: 'input', placeholder: 'Network name' }) as HTMLInputElement;
       select.replaceWith(manual);
     }
   };
 
-  changeBtn.onclick = async () => {
-    changeBtn.disabled = true;
-    form.hidden = false;
-    status.replaceChildren(note('Connecting over USB…'));
-    try {
-      const conn = await openShared((msg) => status.replaceChildren(note(msg)));
-      status.replaceChildren(note('Asking the device what it can see…'));
-      await loadNetworks(conn);
-      status.replaceChildren(
-        note('Pick the network the device should join. It keeps its settings either way.'),
+  const paint = () => {
+    const conn = liveConnection();
+
+    if (setupMode()) {
+      heading.textContent = 'Set up Wi-Fi';
+      current.replaceChildren(
+        note('This dial has no network yet. Pick one and it will link itself to this page.'),
       );
-    } catch (err) {
-      form.hidden = true;
-      changeBtn.disabled = false;
-      current.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+      blurb.textContent =
+        'The password goes straight down the cable — it never touches the internet.';
+      changeBtn.hidden = true;
+      form.hidden = false;
+      cancel.hidden = true;
+      void loadNetworks(conn!);
+      return;
     }
+
+    heading.textContent = 'Wi-Fi';
+    cancel.hidden = false;
+    const ssid = ctx.status?.wifiSsid;
+    const rssi = ctx.status?.wifiRssi;
+    current.replaceChildren(
+      !ctx.session
+        ? note('Link a dial to see which network it is on.')
+        : ssid
+          ? note(`On ${ssid}${typeof rssi === 'number' ? ` · ${rssi} dBm` : ''}.`, 'ok')
+          : note('The dial has not reported a network yet. It reports one each time it checks in.'),
+    );
+    blurb.textContent = conn
+      ? 'Changing networks keeps everything else — the dial keeps its identity and settings.'
+      : 'Changing networks needs the cable, since the password never goes through the ' +
+        'internet. Connect over USB at the top of the page.';
+    changeBtn.hidden = !ctx.session;
+    changeBtn.disabled = !conn;
+    if (!conn) {
+      form.hidden = true;
+      scannedFor = null;
+    }
+  };
+
+  changeBtn.onclick = async () => {
+    const conn = liveConnection();
+    if (!conn) return;
+    form.hidden = false;
+    changeBtn.disabled = true;
+    status.replaceChildren(note('Asking the dial what it can see…'));
+    await loadNetworks(conn);
+    status.replaceChildren(note('Pick the network the dial should join.'));
   };
 
   cancel.onclick = () => {
     form.hidden = true;
     changeBtn.disabled = false;
+    status.replaceChildren();
   };
 
   go.onclick = async () => {
     const conn = liveConnection();
     if (!conn) {
-      status.replaceChildren(note('The USB connection went away — try again.', 'err'));
+      status.replaceChildren(note('The cable came out — reconnect at the top.', 'err'));
       return;
     }
     const ssid = chosenSsid();
@@ -207,30 +231,38 @@ function wifiCard(session: api.Session) {
     status.replaceChildren(note(`Joining ${ssid}…`));
     try {
       const next = await provision(conn, ssid, password.value);
+      password.value = '';
 
-      // The device hands back its own settings URL. A different id there means
-      // the cable is in a different dial than the one this page is configuring
-      // -- worth saying, because the change landed, just not where expected.
-      const elsewhere = next ? adoptSession(next)?.id !== session.id : false;
+      // A dial that just joined hands back its own settings URL. With no
+      // session that link is the whole setup step; with one it is how we tell
+      // whether the cable is even in the dial this page is editing.
+      const linked = next ? parseSession(next) : null;
+      if (!ctx.session && linked) {
+        adoptSession(next!);
+        ctx.relink(linked);
+        return;
+      }
+
       form.hidden = true;
       changeBtn.disabled = false;
-      password.value = '';
+      status.replaceChildren();
+      const elsewhere = Boolean(linked && ctx.session && linked.id !== ctx.session.id);
       current.replaceChildren(
         note(
           elsewhere
-            ? `Joined ${ssid}, but the cable is in a different device than this page.`
+            ? `Joined ${ssid}, but the cable is in dial ${linked!.id}, not this one.`
             : `Joined ${ssid}. Settings and history are unchanged.`,
           elsewhere ? 'info' : 'ok',
         ),
       );
-      // The device reports its network on the next poll; nudge it so the line
-      // above is confirmed by the device rather than assumed.
+      // Confirm from the dial rather than assuming: it reports its network on
+      // the next poll, so make that poll happen now.
       await conn.improv.refresh().catch(() => null);
-      void showCurrent();
+      await ctx.refreshStatus();
     } catch (err) {
       status.replaceChildren(
         note(
-          `${err instanceof Error ? err.message : String(err)} — the device went back to ` +
+          `${err instanceof Error ? err.message : String(err)} — the dial went back to ` +
             'the network it was on.',
           'err',
         ),
@@ -239,20 +271,10 @@ function wifiCard(session: api.Session) {
     go.disabled = false;
   };
 
-  return el(
-    'section',
-    { class: 'card' },
-    el('h2', {}, 'Wi-Fi'),
-    current,
-    el(
-      'p',
-      { class: 'muted' },
-      'Changing networks needs the USB cable — the password never goes through the ' +
-        'internet. Nothing else is lost: the dial keeps its identity and settings.',
-    ),
-    changeBtn,
-    form,
-  );
+  paint();
+  ctx.onChange(paint);
+
+  return el('section', { class: 'card' }, heading, current, blurb, changeBtn, form);
 }
 
 /**
@@ -460,149 +482,147 @@ function firmwareCard(session: api.Session | null) {
   return el('section', { class: 'card' }, ...children);
 }
 
-/* ------------------------------- landing ------------------------------- */
+/* ------------------------------ device bar ------------------------------ */
 
-function landing() {
-  subtitle.textContent = 'Plug the knob into this computer to set it up';
-  // No device in hand yet, so nothing to match: back to the shipped colour.
-  resetAccent();
+/** What this render is looking at. See the note where it is built. */
+interface PageContext {
+  session: api.Session | null;
+  config: DeviceConfig;
+  readonly status: api.DeviceState | null;
+  /** Re-render the whole page against a different dial, or none. */
+  relink: (next: api.Session | null) => void;
+  /** Called whenever the cable or the device status changes. */
+  onChange: (fn: () => void) => void;
+  refreshStatus: () => Promise<void>;
+}
 
-  const btn = el('button', { class: 'primary' }, 'Connect device over USB');
+const shortAgo = (epochSeconds: number): string => {
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - epochSeconds);
+  if (s < 90) return `${s}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  if (s < 172800) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+};
+
+/**
+ * The one place that answers "which dial is this page editing, and is the
+ * cable in that one?".
+ *
+ * Every other card reads this state and never opens or closes the port itself.
+ * Three cards each owning their own connect button meant they disagreed the
+ * moment any one of them acted -- and none of them ever named the device, so
+ * the page was editing an id it never showed you.
+ */
+function deviceBar(ctx: PageContext) {
+  const dot = el('span', { class: 'dot' });
+  const title = el('div', { class: 'devbar-title' });
+  const detail = el('div', { class: 'devbar-detail' });
+  const action = el('button', { class: 'ghost' }, 'Connect over USB') as HTMLButtonElement;
+  const extra = el('button', { class: 'ghost' }, 'Switch') as HTMLButtonElement;
   const status = el('div', { class: 'status' });
 
-  btn.onclick = async () => {
-    btn.disabled = true;
+  /** Device the cable is in, when it is provisioned enough to say. */
+  const attachedId = () => {
+    const conn = liveConnection();
+    return conn?.nextUrl ? (parseSession(conn.nextUrl)?.id ?? null) : null;
+  };
+
+  const paint = () => {
+    const conn = liveConnection();
+    const attached = attachedId();
+    const session = ctx.session;
+    const mismatch = Boolean(session && attached && attached !== session.id);
+
+    dot.className = `dot ${conn ? (mismatch ? 'dot-warn' : 'dot-ok') : session ? 'dot-idle' : 'dot-off'}`;
+    extra.hidden = !mismatch;
+    action.textContent = conn ? 'Disconnect' : 'Connect over USB';
+    action.disabled = !serialSupported();
+
+    if (!session) {
+      title.textContent = conn ? 'Dial attached, not set up yet' : 'No dial linked yet';
+      detail.textContent = conn
+        ? `${conn.info.firmware} ${conn.info.version} — give it a Wi-Fi network below.`
+        : 'Plug a dial in over USB to set it up. Everything below is a preview until then.';
+      status.replaceChildren();
+      return;
+    }
+
+    title.textContent = `Dial ${session.id}`;
+    if (mismatch) {
+      extra.textContent = `Switch to ${attached}`;
+      detail.textContent = `The cable is in dial ${attached}, not this one.`;
+    } else {
+      const bits = [ctx.config.login];
+      if (ctx.status?.lastSeen) bits.push(`seen ${shortAgo(ctx.status.lastSeen)}`);
+      if (ctx.status?.wifiSsid) bits.push(`on ${ctx.status.wifiSsid}`);
+      if (conn) bits.push('cable attached');
+      detail.textContent = bits.join(' · ');
+    }
+  };
+
+  action.onclick = async () => {
+    action.disabled = true;
+    if (liveConnection()) {
+      await closeShared();
+      status.replaceChildren();
+      return;
+    }
     status.replaceChildren(note('Waiting for you to pick a port…'));
     try {
       const conn = await openShared((msg) => status.replaceChildren(note(msg)));
-      if (conn.nextUrl) {
-        // Already provisioned: adopt the session and go, no Wi-Fi step needed.
-        // The port stays open, so the first push from the settings page lands
-        // on the dial immediately rather than at its next poll.
+      status.replaceChildren();
+      // A provisioned dial hands back its own settings URL. With no session
+      // yet that is the link, so setting one up needs no second step.
+      if (!ctx.session && conn.nextUrl) {
         const adopted = adoptSession(conn.nextUrl);
         if (adopted) {
-          void configView(adopted);
+          void ctx.relink(adopted);
           return;
         }
       }
-      provisionView(conn);
     } catch (err) {
       status.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
-      btn.disabled = false;
     }
+    paint();
   };
 
-  const card = el(
-    'section',
-    { class: 'card' },
-    el('h2', {}, 'Set up your knob'),
-    el(
-      'p',
-      { class: 'muted' },
-      'Connect over USB and pick a Wi-Fi network. Nothing is typed twice — the ' +
-        'device sends this page straight to its own settings afterwards.',
-    ),
-    btn,
-    status,
-  );
+  extra.onclick = () => {
+    const conn = liveConnection();
+    const next = conn?.nextUrl ? adoptSession(conn.nextUrl) : null;
+    if (next) void ctx.relink(next);
+  };
 
   if (!serialSupported()) {
-    btn.disabled = true;
     status.replaceChildren(
       note(
-        'This browser has no Web Serial. Use desktop Chrome, Edge, or Opera. ' +
-          'On Linux you may also need to be in the "dialout" group.',
-        'err',
+        'This browser has no Web Serial, so setup and flashing need desktop Chrome, ' +
+          'Edge, or Opera. On Linux you may also need to be in the "dialout" group.',
+        'info',
       ),
     );
   }
-  // Flashing is available here as well: a device that will not provision still
-  // needs a way back, and flashing depends only on Web Serial.
-  show(el('div', { class: 'stack' }, card, firmwareCard(null), buildFooter()));
-}
 
-/* ------------------------------ provisioning ------------------------------ */
+  paint();
+  ctx.onChange(paint);
 
-function provisionView(conn: Connection) {
-  subtitle.textContent = `${conn.info.name} · ${conn.info.firmware} ${conn.info.version}`;
-
-  const select = el('select', { class: 'input' });
-  select.append(el('option', { value: '' }, 'Scanning…'));
-  const password = el('input', { class: 'input', type: 'password', placeholder: 'Wi-Fi password' });
-  const go = el('button', { class: 'primary' }, 'Connect to Wi-Fi');
-  const status = el('div', { class: 'status' });
-
-  // Networks come from the DEVICE's own scan, so the list is what it can
-  // actually reach -- not what this laptop can see.
-  let manual: HTMLInputElement | null = null;
-  const loadNetworks = async () => {
-    try {
-      const ssids = await conn.improv.scan();
-      if (ssids.length === 0) throw new Error('no networks reported');
-      select.replaceChildren(
-        ...ssids.map((s) =>
-          el('option', { value: s.name }, `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`),
-        ),
-      );
-    } catch {
-      // Fall back to typing it: a device that cannot scan can still be told.
-      manual = el('input', { class: 'input', placeholder: 'Network name' }) as HTMLInputElement;
-      select.replaceWith(manual);
-    }
-  };
-  void loadNetworks();
-
-  go.onclick = async () => {
-    const ssid = manual ? manual.value : select.value;
-    if (!ssid) {
-      status.replaceChildren(note('Pick a network first.', 'err'));
-      return;
-    }
-    go.disabled = true;
-    status.replaceChildren(note('Connecting…'));
-    try {
-      const next = await provision(conn, ssid, password.value);
-      if (next) {
-        status.replaceChildren(note('Connected. Opening settings…', 'ok'));
-        // The device's URL is same-origin and differs only in the hash, so
-        // assigning location.href is a same-document navigation: nothing
-        // reloads and the page sits on this message forever. Adopt the session
-        // and render the settings view directly instead.
-        const adopted = adoptSession(next);
-        if (adopted) void configView(adopted);
-        // Anything else came from the device and is not ours to navigate to. A
-        // `javascript:` URL parses fine, has origin "null" so it fails the
-        // check adoptSession makes, and would then run in this origin -- with
-        // the session sitting in localStorage.
-        else throw new Error(`the device pointed at ${next}, which is not this site`);
-      } else {
-        status.replaceChildren(
-          note('Wi-Fi connected, but the device sent no settings URL.', 'err'),
-        );
-        go.disabled = false;
-      }
-    } catch (err) {
-      status.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
-      go.disabled = false;
-    }
-  };
-
-  show(
+  return el(
+    'section',
+    { class: 'card devbar' },
     el(
-      'section',
-      { class: 'card' },
-      el('h2', {}, 'Choose a network'),
-      el('label', { class: 'lbl' }, 'Network'),
-      select,
-      el('label', { class: 'lbl' }, 'Password'),
-      password,
-      go,
-      status,
+      'div',
+      { class: 'devbar-row' },
+      dot,
+      el('div', { class: 'devbar-text' }, title, detail),
+      el('div', { class: 'devbar-actions' }, extra, action),
     ),
+    status,
   );
 }
 
 /* -------------------------------- config -------------------------------- */
+
+/** Torn down and replaced on every render -- see where it is set. */
+let unsubscribeConnection: (() => void) | null = null;
 
 /**
  * Overlay an unsaved config onto the last payload, so the preview reflects
@@ -653,34 +673,49 @@ function previewPanel(getPayload: () => DevicePayload | null) {
   return { node: el('div', { class: 'preview' }, canvas, caption), draw };
 }
 
-async function configView(session: api.Session) {
-  subtitle.textContent = 'Settings';
+/**
+ * The whole site, in one page.
+ *
+ * There used to be a landing screen, a provisioning screen and a settings
+ * screen. Nothing about a dial is worth its own navigation step -- the device
+ * either has a link to this page or it does not -- and splitting it meant you
+ * could not see what the thing did until after you had set one up. Now the
+ * settings render either way, disabled and showing sample data until a dial is
+ * linked, and provisioning is just the Wi-Fi card doing its job.
+ */
+async function page(session: api.Session | null) {
+  subtitle.textContent = session ? 'Settings' : 'Preview — connect a dial to make it yours';
   show(el('section', { class: 'card' }, note('Loading…')));
 
-  let config: DeviceConfig;
-  let payload: DevicePayload | null = null;
-  try {
-    config = await api.getConfig(session);
-    // Wear the device's colour from the first paint, not from the first edit.
-    applyAccent(config.theme.accent);
-  } catch (err) {
-    const retry = el('button', { class: 'ghost' }, 'Start over');
-    retry.onclick = () => {
-      api.clearSession();
-      landing();
-    };
-    show(
-      el(
-        'section',
-        { class: 'card' },
-        note(`Could not load settings: ${err instanceof Error ? err.message : err}`, 'err'),
-        retry,
-      ),
-    );
-    return;
-  }
+  let config: DeviceConfig = DEMO_CONFIG;
+  let payload: DevicePayload | null = session ? null : demoPayload();
+  let status: api.DeviceState | null = null;
 
-  payload = await api.getPreview(session).catch(() => null);
+  if (session) {
+    try {
+      config = await api.getConfig(session);
+      payload = await api.getPreview(session).catch(() => null);
+      status = await api.getStatus(session).then((s) => s.device).catch(() => null);
+    } catch (err) {
+      const retry = el('button', { class: 'ghost' }, 'Forget this dial');
+      retry.onclick = () => {
+        api.clearSession();
+        void page(null);
+      };
+      show(
+        el(
+          'section',
+          { class: 'card' },
+          note(`Could not load settings: ${err instanceof Error ? err.message : err}`, 'err'),
+          retry,
+        ),
+      );
+      return;
+    }
+  }
+  // Wear the dial's colour from the first paint, not from the first edit.
+  applyAccent(config.theme.accent);
+
   const preview = previewPanel(() => applyDraft(payload, draft));
 
   // Edits accumulate in a draft and only reach the device when pushed.
@@ -697,53 +732,34 @@ async function configView(session: api.Session) {
    * USB is a shortcut, never a requirement.
    *
    * Settings live in the service and the dial picks them up on its next poll,
-   * so a push always works. But when the cable is already in, the browser can
-   * tell the device to fetch right now -- which turns "up to ten seconds, then
+   * so a push always works. When the cable is in, the browser can tell the
+   * device to fetch right now -- which turns "up to ten seconds, then
    * probably" into "done, and here is the confirmation from the device".
+   *
+   * The cable itself is connected from the bar at the top of the page. This
+   * card only reports what that means for pushing.
    */
-  const usbNote = el('div', { class: 'status' });
-  const usbBtn = el('button', { class: 'ghost' }, 'Connect over USB') as HTMLButtonElement;
+  const pushHint = el('div', { class: 'status' });
 
-  const paintUsb = (msg?: string, tone?: 'ok' | 'info' | 'err') => {
-    const conn = liveConnection();
-    usbBtn.textContent = conn ? 'Disconnect USB' : 'Connect over USB';
-    usbBtn.disabled = false;
-    usbNote.replaceChildren(
+  const paintHint = (msg?: string, tone?: 'ok' | 'info' | 'err') => {
+    if (msg) {
+      pushHint.replaceChildren(note(msg, tone));
+      return;
+    }
+    pushHint.replaceChildren(
       note(
-        msg ??
-          (conn
-            ? `Connected to ${conn.info.name} ${conn.info.version} — pushes apply instantly.`
-            : 'Not connected. Pushes reach the dial at its next poll, within about ten ' +
-              'seconds. Connect the cable to apply them instantly.'),
-        tone ?? (conn ? 'ok' : 'info'),
+        !serialSupported()
+          ? 'This browser has no Web Serial, so pushes arrive at the dial’s next poll.'
+          : liveConnection()
+            ? 'Cable attached — pushes apply instantly.'
+            : 'Pushes reach the dial at its next poll, within about ten seconds. ' +
+              'Connect over USB above to apply them instantly.',
+        liveConnection() ? 'ok' : 'info',
       ),
     );
   };
-
-  usbBtn.onclick = async () => {
-    usbBtn.disabled = true;
-    if (liveConnection()) {
-      await closeShared();
-      paintUsb();
-      return;
-    }
-    usbNote.replaceChildren(note('Waiting for you to pick a port…'));
-    try {
-      await openShared((msg) => usbNote.replaceChildren(note(msg)));
-      paintUsb();
-    } catch (err) {
-      paintUsb(err instanceof Error ? err.message : String(err), 'err');
-    }
-  };
-
-  if (!serialSupported()) {
-    usbBtn.disabled = true;
-    usbNote.replaceChildren(
-      note('This browser has no Web Serial, so pushes arrive at the next poll.', 'info'),
-    );
-  } else {
-    paintUsb();
-  }
+  paintHint();
+  onConnectionChange(() => paintHint());
 
   /**
    * Ask the device to fetch now. Returns true only if it confirms it has the
@@ -756,20 +772,20 @@ async function configView(session: api.Session) {
     try {
       const ok = await conn.improv.refresh();
       if (ok === null) {
-        paintUsb('Connected, but this firmware predates instant push — flash a newer build.', 'info');
+        paintHint('Cable attached, but this firmware predates instant push — flash a newer build.', 'info');
         return false;
       }
       if (!ok) {
-        paintUsb('The device could not reach the service just now.', 'err');
+        paintHint('The dial could not reach the service just now.', 'err');
         return false;
       }
-      paintUsb();
+      paintHint();
       return true;
     } catch (err) {
-      // Usually the cable came out. Drop the stale connection rather than
-      // leaving a button that claims a link which is gone.
+      // Usually the cable came out. Drop the stale connection so the bar and
+      // every other card stop claiming a link that is gone.
       await closeShared();
-      paintUsb(err instanceof Error ? err.message : String(err), 'err');
+      paintHint(err instanceof Error ? err.message : String(err), 'err');
       return false;
     }
   };
@@ -810,6 +826,7 @@ async function configView(session: api.Session) {
   };
 
   pushBtn.onclick = async () => {
+    if (!session) return;
     pushBtn.disabled = true;
     pushNote.replaceChildren(note('Pushing…'));
     try {
@@ -893,8 +910,10 @@ async function configView(session: api.Session) {
 
   /* repo picker */
   const repoList = el('div', { class: 'rows' }, note('Loading repos…'));
-  api
-    .getRepos(session)
+  if (!session) repoList.replaceChildren(note('Link a dial to choose which repos it shows.'));
+  else
+    api
+      .getRepos(session)
     .then(({ repos }) => {
       repoList.replaceChildren(
         ...repos.map((r) => {
@@ -972,8 +991,9 @@ async function configView(session: api.Session) {
     );
   };
   paintToken(false);
-  api
-    .tokenStatus(session)
+  if (session)
+    api
+      .tokenStatus(session)
     .then((s) =>
       paintToken(
         s.present,
@@ -987,6 +1007,7 @@ async function configView(session: api.Session) {
     .catch(() => {});
 
   tokenSave.onclick = async () => {
+    if (!session) return;
     const value = tokenInput.value.trim();
     if (!value) {
       tokenStatus.replaceChildren(note('Paste a token first.', 'err'));
@@ -1007,6 +1028,7 @@ async function configView(session: api.Session) {
   };
 
   tokenRemove.onclick = async () => {
+    if (!session) return;
     tokenRemove.disabled = true;
     try {
       await api.clearToken(session);
@@ -1022,15 +1044,16 @@ async function configView(session: api.Session) {
   // the USB flow. Clearing Chrome's serial permission does not help -- that is
   // a browser grant, this is app state -- so there has to be an explicit way
   // out, both to reconnect and to hand the device to someone else.
-  const forgetBtn = el('button', { class: 'ghost' }, 'Connect over USB again');
+  const forgetBtn = el('button', { class: 'ghost' }, 'Forget this dial');
   forgetBtn.onclick = () => {
     api.clearSession();
-    landing();
+    void page(null);
   };
 
   const refreshBtn = el('button', { class: 'ghost' }, 'Refresh from GitHub now');
   const refreshStatus = el('span', { class: 'tag' }, '');
   refreshBtn.onclick = async () => {
+    if (!session) return;
     refreshBtn.disabled = true;
     refreshStatus.textContent = 'fetching…';
     try {
@@ -1044,87 +1067,145 @@ async function configView(session: api.Session) {
     refreshBtn.disabled = false;
   };
 
+  /*
+   * One object describing what this render is looking at, handed to the pieces
+   * that need to agree about it. The bar and the Wi-Fi card both have to know
+   * which dial is linked and whether the cable is in that one; before this they
+   * each kept their own answer and drifted apart.
+   */
+  const barListeners = new Set<() => void>();
+  const notifyBar = () => {
+    for (const fn of [...barListeners]) fn();
+  };
+  // Each render subscribes afresh, so drop the previous one first. Without
+  // this, relinking to another dial would leave the old page's listeners
+  // repainting DOM that is no longer on screen.
+  unsubscribeConnection?.();
+  unsubscribeConnection = onConnectionChange(notifyBar);
+
+  const pageCtx: PageContext = {
+    session,
+    config,
+    get status() {
+      return status;
+    },
+    relink: (next) => void page(next),
+    onChange: (fn) => barListeners.add(fn),
+    refreshStatus: async () => {
+      if (!session) return;
+      status = await api
+        .getStatus(session)
+        .then((r) => r.device)
+        .catch(() => status);
+      notifyBar();
+    },
+  };
+
+  /*
+   * Everything that edits the dial's settings goes inside one fieldset, which
+   * is disabled until a dial is linked.
+   *
+   * A fieldset rather than a dimmed div: opacity alone is a lie, since you can
+   * still tab into a greyed-out input and type into it. This actually disables
+   * every control inside, in one attribute.
+   */
+  const settings = el(
+    'fieldset',
+    { class: 'fs stack' },
+    el('section', { class: 'card' }, pushBtn, pushNote, pushHint),
+    el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
+    el(
+      'section',
+      { class: 'card' },
+      el('h2', {}, 'GitHub account'),
+      el(
+        'p',
+        { class: 'muted' },
+        'Whose stats this dial shows. Each device has its own settings, so ' +
+          'changing this affects only this device.',
+      ),
+      loginInput,
+    ),
+    el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
+    el(
+      'section',
+      { class: 'card' },
+      el('h2', {}, 'Look'),
+      el('label', { class: 'lbl' }, 'Accent'),
+      accentRow,
+      el('label', { class: 'lbl' }, 'Brightness'),
+      el('div', { class: 'row' }, bright, brightLabel),
+      el('label', { class: 'lbl' }, 'Auto-advance'),
+      el('div', { class: 'row' }, rot, rotLabel),
+    ),
+    el(
+      'section',
+      { class: 'card' },
+      el('h2', {}, 'Your GitHub'),
+      el(
+        'p',
+        { class: 'muted' },
+        "Stats are fetched with the owner's GitHub token by default, which only " +
+          'sees public data. Add your own to include private repos and use your ' +
+          'own rate limit instead.',
+      ),
+      el(
+        'p',
+        { class: 'muted' },
+        'Create one at ',
+        el(
+          'a',
+          {
+            href: 'https://github.com/settings/personal-access-tokens/new',
+            target: '_blank',
+            rel: 'noreferrer',
+          },
+          'github.com/settings/personal-access-tokens',
+        ),
+        ' — read-only is enough. It is encrypted at rest, checked against GitHub ' +
+          'before being saved, and never sent to the device.',
+      ),
+      tokenInput,
+      el('div', { class: 'row' }, tokenSave, tokenRemove),
+      tokenStatus,
+    ),
+  ) as HTMLFieldSetElement;
+  settings.disabled = !session;
+
+  // Outside the fieldset on purpose: Wi-Fi is how an unlinked dial becomes a
+  // linked one, and flashing needs Web Serial and nothing else -- it is what
+  // you reach for when a device is too broken to link at all.
+  const alwaysOn = el(
+    'div',
+    { class: 'stack' },
+    wifiCard(pageCtx),
+    firmwareCard(session),
+  );
+
+  const maintenance = el(
+    'fieldset',
+    { class: 'fs' },
+    el(
+      'section',
+      { class: 'card' },
+      el('div', { class: 'row' }, refreshBtn, refreshStatus),
+      el(
+        'p',
+        { class: 'muted' },
+        'Forgetting a dial only clears it from this browser. The device keeps its ' +
+          'settings, and reconnecting over USB links it again.',
+      ),
+      forgetBtn,
+    ),
+  ) as HTMLFieldSetElement;
+  maintenance.disabled = !session;
+
   show(
     el(
       'div',
       { class: 'split' },
       preview.node,
-      el(
-        'div',
-        { class: 'stack' },
-        el('section', { class: 'card' }, pushBtn, pushNote, usbBtn, usbNote),
-        el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
-        el(
-          'section',
-          { class: 'card' },
-          el('h2', {}, 'GitHub account'),
-          el(
-            'p',
-            { class: 'muted' },
-            'Whose stats this dial shows. Each device has its own settings, so ' +
-              'changing this affects only this device.',
-          ),
-          loginInput,
-        ),
-        el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoList),
-        el(
-          'section',
-          { class: 'card' },
-          el('h2', {}, 'Look'),
-          el('label', { class: 'lbl' }, 'Accent'),
-          accentRow,
-          el('label', { class: 'lbl' }, 'Brightness'),
-          el('div', { class: 'row' }, bright, brightLabel),
-          el('label', { class: 'lbl' }, 'Auto-advance'),
-          el('div', { class: 'row' }, rot, rotLabel),
-        ),
-        el(
-          'section',
-          { class: 'card' },
-          el('h2', {}, 'Your GitHub'),
-          el(
-            'p',
-            { class: 'muted' },
-            "Stats are fetched with the owner's GitHub token by default, which only " +
-              'sees public data. Add your own to include private repos and use your ' +
-              'own rate limit instead.',
-          ),
-          el(
-            'p',
-            { class: 'muted' },
-            'Create one at ',
-            el(
-              'a',
-              {
-                href: 'https://github.com/settings/personal-access-tokens/new',
-                target: '_blank',
-                rel: 'noreferrer',
-              },
-              'github.com/settings/personal-access-tokens',
-            ),
-            ' — read-only is enough. It is encrypted at rest, checked against GitHub ' +
-              'before being saved, and never sent to the device.',
-          ),
-          tokenInput,
-          el('div', { class: 'row' }, tokenSave, tokenRemove),
-          tokenStatus,
-        ),
-        wifiCard(session),
-        firmwareCard(session),
-        el(
-          'section',
-          { class: 'card' },
-          el('div', { class: 'row' }, refreshBtn, refreshStatus),
-          el(
-            'p',
-            { class: 'muted' },
-            'Reconnecting over USB re-reads the device identity — use it to point this ' +
-              'page at a different device.',
-          ),
-          forgetBtn,
-        ),
-        buildFooter(),
-      ),
+      el('div', { class: 'stack' }, deviceBar(pageCtx), settings, alwaysOn, maintenance, buildFooter()),
     ),
   );
   preview.draw();
@@ -1136,7 +1217,7 @@ async function configView(session: api.Session) {
  * Take the device id + secret out of the URL Improv handed back. Returns null
  * for anything that is not one of our own settings URLs.
  */
-function adoptSession(next: string): api.Session | null {
+function parseSession(next: string): api.Session | null {
   try {
     const url = new URL(next, location.href);
     if (url.origin !== location.origin) return null;
@@ -1144,12 +1225,16 @@ function adoptSession(next: string): api.Session | null {
     const id = params.get('d');
     const key = params.get('k');
     if (!id || !key) return null;
-    return api.saveSession({ id, key });
+    return { id, key };
   } catch {
     return null;
   }
 }
 
-const session = api.readSession();
-if (session) void configView(session);
-else landing();
+/** As above, and remember it. Reading the id is not the same as switching to it. */
+function adoptSession(next: string): api.Session | null {
+  const parsed = parseSession(next);
+  return parsed ? api.saveSession(parsed) : null;
+}
+
+void page(api.readSession());
