@@ -980,42 +980,57 @@ async function page(session: api.Session | null) {
    *
    * The dial holds MAX_DEVICE_REPOS of them -- a fixed array in the firmware --
    * and used to simply drop the rest on arrival, so picking twelve silently
-   * showed eight and there was no way to say which eight. The cap is a visible
-   * part of the control now, and the chosen ones can be dragged into order.
+   * showed eight with no way to say which eight. The cap is a visible part of
+   * the control now.
+   *
+   * `repos: null` is the automatic mode: the most-starred, re-evaluated every
+   * refresh, so a new repo that takes off appears without anyone touching this
+   * page. That used to be an invisible default you lost by clicking anything;
+   * it is a checkbox now, and turning it off freezes the current list.
    */
+  const autoBox = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const autoRow = el(
+    'label',
+    { class: 'row' },
+    autoBox,
+    el('span', {}, `Keep the top ${MAX_DEVICE_REPOS} automatically`),
+  );
   const repoCount = el('div', { class: 'status' });
-  const repoList = el('div', { class: 'rows' }, note('Loading repos…'));
+  const repoList = el('div', {}, note('Loading repos…'));
   let allRepos: { name: string; stars: number }[] = [];
 
-  /** Chosen names in display order. `null` means "the top ones, automatically". */
+  /** Names in display order. Derived from the top of the list while automatic. */
   const chosen = (): string[] =>
     draft.repos ?? allRepos.slice(0, MAX_DEVICE_REPOS).map((r) => r.name);
 
-  /** Any deliberate edit fixes the list; auto-follow ends at the first one. */
-  const setChosen = (names: string[]) => {
-    edit({ repos: names.slice(0, MAX_DEVICE_REPOS) });
+  const setChosen = (names: string[] | null) => {
+    edit({ repos: names === null ? null : names.slice(0, MAX_DEVICE_REPOS) });
     renderRepos();
   };
+
+  autoBox.onchange = () => setChosen(autoBox.checked ? null : chosen());
 
   let dragging: string | null = null;
 
   function renderRepos() {
+    autoBox.checked = draft.repos === null;
     if (allRepos.length === 0) {
+      repoCount.replaceChildren();
       repoList.replaceChildren(note('This account has no repos to show.'));
       return;
     }
-    const picked = chosen();
+
     const auto = draft.repos === null;
+    const picked = chosen();
     const rest = allRepos.filter((r) => !picked.includes(r.name));
 
     repoCount.replaceChildren(
       note(
-        `${picked.length} of ${MAX_DEVICE_REPOS} — ${
-          auto
-            ? 'the most-starred, kept up to date as repos come and go. Reorder or ' +
-              'untick one to choose for yourself.'
-            : 'drag to reorder. The dial shows them in this order.'
-        }`,
+        auto
+          ? `Showing the ${Math.min(picked.length, MAX_DEVICE_REPOS)} most-starred, updated as ` +
+            'repos come and go. Untick above to choose and order them yourself.'
+          : `${picked.length} of ${MAX_DEVICE_REPOS} — drag to reorder. The dial shows them ` +
+            'in this order.',
         auto ? 'info' : 'ok',
       ),
     );
@@ -1023,47 +1038,69 @@ async function page(session: api.Session | null) {
     const row = (name: string, stars: number, isPicked: boolean) => {
       const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
       cb.checked = isPicked;
-      cb.disabled = !isPicked && picked.length >= MAX_DEVICE_REPOS;
+      cb.disabled = auto || (!isPicked && picked.length >= MAX_DEVICE_REPOS);
       cb.onchange = () =>
         setChosen(isPicked ? picked.filter((n) => n !== name) : [...picked, name]);
 
       const r = el(
-        'label',
-        { class: `row${isPicked ? ' row-pick' : ''}` },
-        cb,
-        el('span', {}, name),
-        el('span', { class: 'tag' }, `★ ${stars}`),
+        'div',
+        { class: `repo-row ${isPicked ? 'pick' : 'unpick'}` },
+        el(
+          'label',
+          { class: 'repo-main' },
+          cb,
+          el('span', { class: 'repo-name' }, name),
+          el('span', { class: 'tag' }, `★ ${stars}`),
+        ),
       );
 
-      // Only chosen rows are draggable: there is no order to give the others.
-      if (isPicked && picked.length > 1) {
-        r.prepend(el('span', { class: 'grip', title: 'Drag to reorder' }, '⠿'));
+      // Only chosen rows drag, and only when the order is ours to set: there is
+      // nothing to order in automatic mode, and nothing to order among the ones
+      // that are not shown.
+      if (isPicked && !auto && picked.length > 1) {
+        const grip = el('span', { class: 'grip', title: 'Drag to reorder' }, '⠿');
+        r.append(grip);
         r.draggable = true;
         r.ondragstart = (ev) => {
           dragging = name;
           r.classList.add('dragging');
           ev.dataTransfer?.setData('text/plain', name);
+          if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
         };
         r.ondragend = () => {
           dragging = null;
           r.classList.remove('dragging');
+          clearMarkers();
         };
         r.ondragover = (ev) => {
           if (!dragging || dragging === name) return;
           ev.preventDefault();
-          r.classList.add('drop-target');
+          // Which half of the row the pointer is over decides whether the line
+          // is drawn above or below it -- the drop lands where the line is.
+          const box = r.getBoundingClientRect();
+          const above = ev.clientY - box.top < box.height / 2;
+          clearMarkers();
+          r.classList.add(above ? 'drop-above' : 'drop-below');
         };
-        r.ondragleave = () => r.classList.remove('drop-target');
+        r.ondragleave = () => r.classList.remove('drop-above', 'drop-below');
         r.ondrop = (ev) => {
           ev.preventDefault();
-          r.classList.remove('drop-target');
           if (!dragging || dragging === name) return;
+          const above = r.classList.contains('drop-above');
+          clearMarkers();
           const next = picked.filter((n) => n !== dragging);
-          next.splice(next.indexOf(name), 0, dragging);
+          const at = next.indexOf(name);
+          next.splice(above ? at : at + 1, 0, dragging);
           setChosen(next);
         };
       }
       return r;
+    };
+
+    const clearMarkers = () => {
+      for (const n of repoList.querySelectorAll('.drop-above, .drop-below')) {
+        n.classList.remove('drop-above', 'drop-below');
+      }
     };
 
     repoList.replaceChildren(
@@ -1072,7 +1109,7 @@ async function page(session: api.Session | null) {
         return row(n, meta?.stars ?? 0, true);
       }),
       ...(rest.length
-        ? [el('div', { class: 'rows-divider' }, `not shown (${rest.length})`)]
+        ? [el('div', { class: 'rows-divider' }, auto ? 'below the cut' : `not shown (${rest.length})`)]
         : []),
       ...rest.map((r) => row(r.name, r.stars, false)),
     );
@@ -1282,7 +1319,7 @@ async function page(session: api.Session | null) {
       ),
       loginInput,
     ),
-    el('section', { class: 'card' }, el('h2', {}, 'Repos'), repoCount, repoList),
+    el('section', { class: 'card' }, el('h2', {}, 'Repos'), autoRow, repoCount, repoList),
     el(
       'section',
       { class: 'card' },

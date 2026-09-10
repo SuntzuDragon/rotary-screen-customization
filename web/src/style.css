@@ -121,14 +121,52 @@ button:disabled { opacity: 0.5; cursor: default; }
 .row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 .tag { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
-/* repo ordering */
-.row-pick { border-radius: 8px; }
-.grip { color: var(--muted); cursor: grab; font-size: 13px; line-height: 1; user-select: none; }
-.row.dragging { opacity: 0.4; }
-.row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+/* repo ordering
+   A chosen repo is a card you can pick up; one that is not shown is a plain
+   row. The difference has to be obvious at a glance, because only one of them
+   can be dragged. */
+.repo-row {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; margin: 6px 0;
+  border: 1px solid transparent; border-radius: 9px;
+}
+.repo-row.pick {
+  background: #1b2027;
+  border-color: #2b333d;
+}
+.repo-row.pick:hover { border-color: #3a444f; }
+.repo-row.unpick { opacity: 0.72; }
+.repo-main {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1; min-width: 0; cursor: pointer;
+}
+.repo-main input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+.repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-main .tag { margin-left: auto; padding-left: 10px; }
+
+.grip {
+  color: var(--muted); cursor: grab; font-size: 15px; line-height: 1;
+  user-select: none; padding: 2px 2px 2px 8px;
+}
+.grip:active { cursor: grabbing; }
+.repo-row.pick:hover .grip { color: var(--fg); }
+
+/* The dragged row stays put as a ghost, so the list never jumps under you. */
+.repo-row.dragging { opacity: 0.35; border-style: dashed; }
+
+/* Minimal drop indicator: a line where the row will land. */
+.repo-row.drop-above::before,
+.repo-row.drop-below::after {
+  content: ''; position: absolute; left: 2px; right: 2px; height: 2px;
+  background: var(--accent); border-radius: 2px;
+}
+.repo-row.drop-above::before { top: -5px; }
+.repo-row.drop-below::after { bottom: -5px; }
+
 .rows-divider {
   color: var(--muted); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.08em; margin: 12px 0 4px; padding-top: 10px;
+  letter-spacing: 0.08em; margin: 14px 0 6px; padding-top: 12px;
   border-top: 1px solid var(--line);
 }
 
