@@ -268,6 +268,28 @@ and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 
 - Nothing outstanding on the config path — see *Instant push over USB* below.
 
+### Wi-Fi is editable, not re-setup
+
+Changing networks used to mean a factory reset and starting over, because Wi-Fi
+only existed in the provisioning flow. It is now a card on the settings page.
+
+Credentials still travel **only over USB**, deliberately: pushing them through
+the service would mean a wrong password leaves the device off the network and
+out of reach of the one channel that could fix it. But nothing else is
+destroyed — the device keeps its id, secret, settings and history, so the
+browser session survives a network change.
+
+Two supporting changes:
+
+- The device reports `x-wifi-ssid` / `x-wifi-rssi` on each poll, stored on the
+  `devices` row, so the card can say which network it is on **with no cable
+  attached**. The password never leaves the device.
+- A failed network change used to strand the device: `bringUpNetwork` had
+  already dropped the old association, credentials are only saved on success so
+  nothing was persisted, and `gRegistered` was still true so the retry loop
+  never fired — leaving it dark until someone power-cycled it. It now falls
+  back to the saved network.
+
 ### Instant push over USB
 
 Settings live in the service and the dial notices them at its next poll, so a
