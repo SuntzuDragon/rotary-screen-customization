@@ -308,10 +308,43 @@ version and flash date. The action moved to *release*, because the two gestures
 are only distinguishable once you know how long the button was down — and a long
 press must not also advance the section on the way out.
 
+Auto-advance and rotation are frozen while the badge is up (`gAboutActive`), and
+the dwell timer restarts on release — otherwise the badge scrolled itself off
+the screen mid-read, and letting go immediately advanced a card that was already
+most of the way through its interval.
+
 The flash date is recorded by `settings::noteVersion()`, called after the NTP
 sync rather than in `begin()`: the first boot of a new version stamps the time,
 later boots of the same one leave it alone, so it reads as "flashed at" rather
 than "started at".
+
+### The dial's limits are in the UI, not a silent truncation
+
+`kMaxRepos = 8` in `firmware/src/model/stats.h` is a fixed array. The worker was
+happily sending up to twenty repos and the device kept the first eight, so
+choosing twelve silently showed eight with no way to say *which* eight.
+
+`MAX_DEVICE_REPOS` now mirrors that constant in `worker/src/types.ts` and
+`web/src/types.ts`, caps the payload and the config, and is visible in the
+picker ("4 of 8"). Chosen repos are drag-reorderable, since order is what the
+dial paints. `repos: null` still means "the top ones, kept up to date as repos
+come and go" — the first deliberate reorder or untick materialises the list,
+so the auto behaviour is the default rather than a thing you lose by touching
+anything.
+
+### One connect button, including for a brick
+
+Flashing is gated on the bar's connection: the port is picked once, at the top,
+and the flash button is disabled until then. Two ways to open the same port was
+the confusion worth removing.
+
+That would have rebuilt the dead end where a dial too broken to answer could not
+be reflashed — so `connect()` no longer throws when Improv stays silent. It
+returns a `Connection` with `responsive: false` and an open port, which is all
+esptool needs. The bar says "Cable attached — no answer", the Wi-Fi card
+explains it cannot provision, and flashing works, which is the thing that fixes
+it. `takePort()` hands the open port to esptool instead of closing it and
+prompting again for a device the page is already showing as connected.
 
 ### Wi-Fi is editable, not re-setup
 
