@@ -24,4 +24,17 @@ void setBaseUrl(const String& url);
 /** The URL handed back over Improv so the browser lands already authenticated. */
 String configUrl();
 
+/**
+ * Wall-clock time this firmware version first ran, or 0 if it has not managed
+ * to ask a clock yet. Recorded by noteVersion, shown on the long-press screen.
+ */
+uint32_t flashedAt();
+
+/**
+ * Stamp the running version. The first boot of a new version records the time;
+ * later boots of the same one leave it alone, so it reads as "flashed at"
+ * rather than "started at". Needs the clock, so call it after an NTP sync.
+ */
+void noteVersion(const char* version);
+
 }  // namespace settings

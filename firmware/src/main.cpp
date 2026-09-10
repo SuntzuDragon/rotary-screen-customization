@@ -83,6 +83,9 @@ lv_color_t* gBuf2 = nullptr;
 
 /* ------------------------------ encoder ------------------------------ */
 
+/** How long the knob must be held before it shows the about screen. */
+constexpr uint32_t kHoldMs = 700;
+
 volatile int32_t gEncoderSteps = 0;
 volatile uint8_t gEncoderPrev = 0;
 
@@ -189,6 +192,9 @@ bool bringUpNetwork(const String& ssid, const String& pass) {
     setPhase(NetPhase::Failed, "clock");
     return false;
   }
+  // First boot of a new build stamps the flash date, which the about screen
+  // shows. Needs the clock, so it happens here rather than in settings::begin.
+  settings::noteVersion(FW_VERSION);
   setPhase(NetPhase::Registering, settings::deviceId().c_str());
   gRegistered = api::registerDevice();
   devlog::logf("[net] registered=%d\n", gRegistered ? 1 : 0);
@@ -650,13 +656,38 @@ void loop() {
                  static_cast<long>(gEncoderSteps));
   }
 
+  /*
+   * Short press advances a section; holding shows the dial's own name badge.
+   *
+   * The action moves to *release* rather than press, because the two gestures
+   * are only distinguishable once you know how long the button was down. A
+   * long press must not also advance the section on the way out.
+   */
+  static uint32_t pressedAt = 0;
   static uint32_t lastSwitch = 0;
   static bool switchWas = true;
-  const bool switchNow = digitalRead(PIN_ENC_SW);
-  if (switchWas && !switchNow && millis() - lastSwitch > 220) {
-    lastSwitch = millis();
-    Serial.println("[input] press");
-    ui::onPress();
+  static bool aboutShown = false;
+  const bool switchNow = digitalRead(PIN_ENC_SW);  // active low
+
+  if (switchWas && !switchNow) {
+    pressedAt = millis();
+    aboutShown = false;
+  }
+
+  if (!switchNow && !aboutShown && millis() - pressedAt > kHoldMs) {
+    aboutShown = ui::showAbout(settings::deviceId().c_str(), settings::flashedAt());
+    if (aboutShown) devlog::logf("[input] hold -> about\n");
+  }
+
+  if (!switchWas && switchNow) {
+    if (aboutShown) {
+      ui::hideAbout();
+      aboutShown = false;
+    } else if (millis() - pressedAt > 25 && millis() - lastSwitch > 220) {
+      lastSwitch = millis();
+      devlog::logf("[input] press\n");
+      ui::onPress();
+    }
   }
   switchWas = switchNow;
 

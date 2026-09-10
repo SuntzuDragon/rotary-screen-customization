@@ -434,6 +434,36 @@ void onPress() {
   redraw();
 }
 
+bool showAbout(const char* deviceId, uint32_t flashedAt) {
+  // Nothing to restore afterwards unless the normal card view is up: the setup
+  // and status screens are drawn by the network task and this module does not
+  // remember them.
+  if (!gHasStats || gCardCount == 0) return false;
+
+  resetRoot();
+  label(gRoot, "THIS DIAL", &lv_font_montserrat_12, gAccent, -60);
+  label(gRoot, deviceId, &lv_font_montserrat_28, lv_color_white(), -28);
+
+  label(gRoot, "FIRMWARE", &lv_font_montserrat_12, lv_color_hex(0x76818E), 12);
+  label(gRoot, FW_VERSION, &lv_font_montserrat_16, lv_color_white(), 30);
+
+  char when[32];
+  if (flashedAt == 0) {
+    snprintf(when, sizeof(when), "flashed: not recorded");
+  } else {
+    const time_t t = static_cast<time_t>(flashedAt);
+    struct tm tm {};
+    gmtime_r(&t, &tm);
+    char stamp[24];
+    strftime(stamp, sizeof(stamp), "%d %b %Y", &tm);
+    snprintf(when, sizeof(when), "flashed %s", stamp);
+  }
+  label(gRoot, when, &lv_font_montserrat_12, lv_color_hex(0x76818E), 60);
+  return true;
+}
+
+void hideAbout() { redraw(); }
+
 void tick(uint32_t nowMs) {
   if (!gHasStats || gStats.rotSec == 0 || gCardCount == 0) return;
   if (nowMs - gLastAdvance < gStats.rotSec * 1000UL) return;

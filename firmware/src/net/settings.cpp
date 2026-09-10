@@ -1,6 +1,7 @@
 #include "settings.h"
 
 #include <Preferences.h>
+#include <time.h>
 #include <esp_random.h>
 #include <bootloader_random.h>
 
@@ -11,6 +12,10 @@
 namespace {
 Preferences prefs;
 String gId, gSecret;
+uint32_t gFlashedAt = 0;
+
+/** Anything earlier than this is an unset clock, not a real timestamp. */
+constexpr uint32_t kPlausibleEpoch = 1700000000;  // Nov 2023
 
 /**
  * esp_random() is only a true RNG while the RF subsystem is running, and this
@@ -52,6 +57,7 @@ void begin() {
 
   gId = prefs.getString("id", "");
   gSecret = prefs.getString("secret", "");
+  gFlashedAt = prefs.getUInt("fwat", 0);
   if (gId.isEmpty() || gSecret.isEmpty()) {
     EntropyGuard entropy;
     if (gId.isEmpty()) {
@@ -63,6 +69,20 @@ void begin() {
       prefs.putString("secret", gSecret);
     }
   }
+}
+
+uint32_t flashedAt() { return gFlashedAt; }
+
+void noteVersion(const char* version) {
+  const uint32_t now = static_cast<uint32_t>(time(nullptr));
+  if (now < kPlausibleEpoch) return;  // clock not set yet; a later call will do it
+
+  const String stored = prefs.getString("fwver", "");
+  if (stored == version && gFlashedAt != 0) return;
+
+  gFlashedAt = now;
+  prefs.putString("fwver", version);
+  prefs.putUInt("fwat", gFlashedAt);
 }
 
 const String& deviceId() { return gId; }
