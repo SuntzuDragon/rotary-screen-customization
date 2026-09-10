@@ -49,6 +49,9 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
   padding: 18px;
 }
 .stack { display: flex; flex-direction: column; gap: 14px; }
+/* .stack and .rows set display, which would otherwise beat the hidden
+   attribute's UA rule. */
+[hidden] { display: none !important; }
 .split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
 

@@ -132,6 +132,11 @@ Result poll(Stats& out) {
   http.addHeader("x-device-key", settings::deviceSecret());
   // Lets the settings page show running vs available firmware.
   http.addHeader("x-fw-version", FW_VERSION);
+  // And which network it is on, so the settings page can say so without the
+  // cable attached. The device is the only thing that knows this: the
+  // credentials never leave it.
+  http.addHeader("x-wifi-ssid", WiFi.SSID());
+  http.addHeader("x-wifi-rssi", String(WiFi.RSSI()));
   if (gEtag.length()) http.addHeader("If-None-Match", gEtag);
 
   const char* collect[] = {"ETag"};

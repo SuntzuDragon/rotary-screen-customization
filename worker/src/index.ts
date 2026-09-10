@@ -333,13 +333,23 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     // firmware version changed, keeps "last seen" useful for a fraction of it.
     const reported = req.headers.get('x-fw-version');
     const fwVersion = reported ? reported.slice(0, 32) : null;
+    // SSIDs are capped at 32 bytes by the standard; RSSI is a small negative
+    // number. Both come off the wire, so neither is trusted for length.
+    const ssidHeader = req.headers.get('x-wifi-ssid');
+    const wifiSsid = ssidHeader ? ssidHeader.slice(0, 64) : null;
+    const rssiHeader = Number(req.headers.get('x-wifi-rssi'));
+    const wifiRssi = Number.isFinite(rssiHeader) ? clamp(rssiHeader, -120, 0) : null;
+
     const now = Math.floor(Date.now() / 1000);
     ctx.waitUntil(
       (async () => {
         const prev = await getStatus(env, id);
         const versionChanged = prev?.fwVersion !== fwVersion;
+        const networkChanged = (prev?.wifiSsid ?? null) !== wifiSsid;
         const stale = !prev || now - prev.lastSeen > 900;
-        if (versionChanged || stale) await putStatus(env, id, { fwVersion, lastSeen: now });
+        if (versionChanged || networkChanged || stale) {
+          await putStatus(env, id, { fwVersion, lastSeen: now, wifiSsid, wifiRssi });
+        }
       })(),
     );
 

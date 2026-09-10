@@ -110,6 +110,9 @@ export interface FirmwareIndex {
 export interface DeviceStatus {
   fwVersion: string | null;
   lastSeen: number;
+  /** Network the device last reported. The password never leaves the device. */
+  wifiSsid?: string | null;
+  wifiRssi?: number | null;
 }
 
 /* ---------- device payload (short keys, ~3KB budget) ---------- */

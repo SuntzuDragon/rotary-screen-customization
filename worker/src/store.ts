@@ -38,6 +38,8 @@ interface DeviceRow {
   registered_at: number;
   last_seen: number | null;
   fw_version: string | null;
+  wifi_ssid: string | null;
+  wifi_rssi: number | null;
   config: string;
 }
 
@@ -133,12 +135,21 @@ export async function ensureConfig(env: Env, id: string): Promise<DeviceConfig> 
 
 export async function getStatus(env: Env, id: string): Promise<DeviceStatus | null> {
   const r = await deviceRow(env, id);
-  return r ? { fwVersion: r.fw_version, lastSeen: r.last_seen ?? 0 } : null;
+  return r
+    ? {
+        fwVersion: r.fw_version,
+        lastSeen: r.last_seen ?? 0,
+        wifiSsid: r.wifi_ssid ?? null,
+        wifiRssi: r.wifi_rssi ?? null,
+      }
+    : null;
 }
 
 export async function putStatus(env: Env, id: string, st: DeviceStatus) {
-  await env.DB.prepare('UPDATE devices SET fw_version = ?, last_seen = ? WHERE id = ?')
-    .bind(st.fwVersion, st.lastSeen, id)
+  await env.DB.prepare(
+    'UPDATE devices SET fw_version = ?, last_seen = ?, wifi_ssid = ?, wifi_rssi = ? WHERE id = ?',
+  )
+    .bind(st.fwVersion, st.lastSeen, st.wifiSsid ?? null, st.wifiRssi ?? null, id)
     .run();
 }
 

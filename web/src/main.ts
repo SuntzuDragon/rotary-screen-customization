@@ -93,6 +93,169 @@ function note(msg: string, kind: 'err' | 'ok' | 'info' = 'info') {
 
 
 /**
+ * Wi-Fi card. Changing networks is an edit, not a re-setup.
+ *
+ * Credentials only ever travel over USB -- pushing them through the service
+ * would mean a wrong password leaves the device off the network and out of
+ * reach of the very channel that could fix it. So this needs the cable, but it
+ * needs nothing else: the device keeps its identity, so the session, settings
+ * and history all survive a network change.
+ *
+ * The network it is *currently* on comes back the other way, from the device's
+ * own polls, so the card can say where things stand with nothing plugged in.
+ */
+function wifiCard(session: api.Session) {
+  const current = el('div', { class: 'status' });
+  const changeBtn = el('button', { class: 'ghost' }, 'Change network');
+
+  const select = el('select', { class: 'input' }) as HTMLSelectElement;
+  const password = el('input', {
+    class: 'input',
+    type: 'password',
+    placeholder: 'Wi-Fi password',
+  }) as HTMLInputElement;
+  const go = el('button', { class: 'primary' }, 'Connect to this network') as HTMLButtonElement;
+  const cancel = el('button', { class: 'ghost' }, 'Cancel');
+  const status = el('div', { class: 'status' });
+  const form = el(
+    'div',
+    {},
+    el('label', { class: 'lbl' }, 'Network'),
+    select,
+    el('label', { class: 'lbl' }, 'Password'),
+    password,
+    go,
+    el('div', { class: 'row' }, cancel),
+    status,
+  );
+  form.hidden = true;
+
+  let manual: HTMLInputElement | null = null;
+  const chosenSsid = () => (manual ? manual.value.trim() : select.value);
+
+  const showCurrent = async () => {
+    try {
+      const st = await api.getStatus(session);
+      const ssid = st.device?.wifiSsid;
+      const rssi = st.device?.wifiRssi;
+      current.replaceChildren(
+        ssid
+          ? note(`On ${ssid}${typeof rssi === 'number' ? ` · ${rssi} dBm` : ''}.`, 'ok')
+          : note(
+              'The device has not reported a network yet. It reports one each time it ' +
+                'checks in.',
+            ),
+      );
+    } catch {
+      current.replaceChildren(note('Could not read the device status.', 'err'));
+    }
+  };
+  void showCurrent();
+
+  const loadNetworks = async (conn: Connection) => {
+    select.replaceChildren(el('option', { value: '' }, 'Scanning…'));
+    try {
+      const ssids = await conn.improv.scan();
+      if (ssids.length === 0) throw new Error('no networks reported');
+      select.replaceChildren(
+        ...ssids.map((s) =>
+          el('option', { value: s.name }, `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`),
+        ),
+      );
+    } catch {
+      // A device that cannot scan can still be told. Same fallback as setup.
+      manual = el('input', { class: 'input', placeholder: 'Network name' }) as HTMLInputElement;
+      select.replaceWith(manual);
+    }
+  };
+
+  changeBtn.onclick = async () => {
+    changeBtn.disabled = true;
+    form.hidden = false;
+    status.replaceChildren(note('Connecting over USB…'));
+    try {
+      const conn = await openShared((msg) => status.replaceChildren(note(msg)));
+      status.replaceChildren(note('Asking the device what it can see…'));
+      await loadNetworks(conn);
+      status.replaceChildren(
+        note('Pick the network the device should join. It keeps its settings either way.'),
+      );
+    } catch (err) {
+      form.hidden = true;
+      changeBtn.disabled = false;
+      current.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
+    }
+  };
+
+  cancel.onclick = () => {
+    form.hidden = true;
+    changeBtn.disabled = false;
+  };
+
+  go.onclick = async () => {
+    const conn = liveConnection();
+    if (!conn) {
+      status.replaceChildren(note('The USB connection went away — try again.', 'err'));
+      return;
+    }
+    const ssid = chosenSsid();
+    if (!ssid) {
+      status.replaceChildren(note('Pick a network first.', 'err'));
+      return;
+    }
+    go.disabled = true;
+    status.replaceChildren(note(`Joining ${ssid}…`));
+    try {
+      const next = await provision(conn, ssid, password.value);
+
+      // The device hands back its own settings URL. A different id there means
+      // the cable is in a different dial than the one this page is configuring
+      // -- worth saying, because the change landed, just not where expected.
+      const elsewhere = next ? adoptSession(next)?.id !== session.id : false;
+      form.hidden = true;
+      changeBtn.disabled = false;
+      password.value = '';
+      current.replaceChildren(
+        note(
+          elsewhere
+            ? `Joined ${ssid}, but the cable is in a different device than this page.`
+            : `Joined ${ssid}. Settings and history are unchanged.`,
+          elsewhere ? 'info' : 'ok',
+        ),
+      );
+      // The device reports its network on the next poll; nudge it so the line
+      // above is confirmed by the device rather than assumed.
+      await conn.improv.refresh().catch(() => null);
+      void showCurrent();
+    } catch (err) {
+      status.replaceChildren(
+        note(
+          `${err instanceof Error ? err.message : String(err)} — the device went back to ` +
+            'the network it was on.',
+          'err',
+        ),
+      );
+    }
+    go.disabled = false;
+  };
+
+  return el(
+    'section',
+    { class: 'card' },
+    el('h2', {}, 'Wi-Fi'),
+    current,
+    el(
+      'p',
+      { class: 'muted' },
+      'Changing networks needs the USB cable — the password never goes through the ' +
+        'internet. Nothing else is lost: the dial keeps its identity and settings.',
+    ),
+    changeBtn,
+    form,
+  );
+}
+
+/**
  * Firmware card. Works with or without a session.
  *
  * Flashing needs Web Serial and nothing else -- not Improv, not a device
@@ -946,6 +1109,7 @@ async function configView(session: api.Session) {
           el('div', { class: 'row' }, tokenSave, tokenRemove),
           tokenStatus,
         ),
+        wifiCard(session),
         firmwareCard(session),
         el(
           'section',
@@ -954,8 +1118,8 @@ async function configView(session: api.Session) {
           el(
             'p',
             { class: 'muted' },
-            'Reconnecting over USB re-reads the device identity — use it to set up ' +
-              'a different device, or after changing Wi-Fi.',
+            'Reconnecting over USB re-reads the device identity — use it to point this ' +
+              'page at a different device.',
           ),
           forgetBtn,
         ),

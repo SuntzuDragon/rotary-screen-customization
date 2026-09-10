@@ -242,6 +242,14 @@ void netTask(void*) {
         settings::saveWifi(gReqSsid, gReqPass);
         pollOnce();
         lastPoll = millis();
+      } else if (settings::hasWifi() && settings::ssid() != gReqSsid) {
+        // Changing networks from the settings page, and the new one did not
+        // take. Credentials are only saved on success, so a reboot would
+        // recover -- but nothing here reboots, and gRegistered is still true
+        // so the retry below never fires. Go back to the known-good network
+        // rather than leaving the dial dark until someone power-cycles it.
+        devlog::logf("[net] new network failed, returning to %s\n", settings::ssid().c_str());
+        bringUpNetwork(settings::ssid(), settings::password());
       }
       gConnectResult = ok ? 1 : 0;
       gConnectRequested = false;

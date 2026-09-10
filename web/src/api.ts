@@ -77,7 +77,12 @@ export interface FirmwareIndex {
 
 export const getStatus = (s: Session) =>
   call<{
-    device: { fwVersion: string | null; lastSeen: number } | null;
+    device: {
+      fwVersion: string | null;
+      lastSeen: number;
+      wifiSsid?: string | null;
+      wifiRssi?: number | null;
+    } | null;
     firmware: FirmwareIndex | null;
   }>(s, 'status');
 
