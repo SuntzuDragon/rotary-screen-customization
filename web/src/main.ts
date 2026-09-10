@@ -7,6 +7,7 @@ import {
   liveConnection,
   onConnectionChange,
   openShared,
+  takePort,
   provision,
   serialSupported,
   type Connection,
@@ -308,6 +309,29 @@ function firmwareCard(session: api.Session | null) {
   let runningVersion: string | null = null;
   let fwIndex: api.FirmwareIndex | null = null;
 
+  /*
+   * Flashing is a cable job, and the card says so -- but it never *requires*
+   * the shared connection.
+   *
+   * That connection only exists if the dial answered Improv, and a dial too
+   * broken to answer is exactly the one that needs reflashing. So a live
+   * connection is used when there is one (no second port prompt for a device
+   * the page is already showing as connected), and picking the port by hand
+   * stays available when there is not.
+   */
+  const cableNote = el('p', { class: 'muted' });
+  const paintCable = () => {
+    cableNote.textContent = !serialSupported()
+      ? 'Flashing needs Web Serial — use desktop Chrome, Edge, or Opera.'
+      : liveConnection()
+        ? 'Cable attached — flashing will use it, and the dial comes back on its own.'
+        : 'Flashing goes over the cable, never the network. Connect over USB at the top ' +
+          'of the page, or press Flash and pick the port when asked — a dial too broken ' +
+          'to answer still flashes this way.';
+  };
+  paintCable();
+  onConnectionChange(paintCable);
+
   const logLine = (line: string) => {
     fwLog.textContent = `${(fwLog.textContent ?? '') + line}`.slice(-8000);
     fwLog.scrollTop = fwLog.scrollHeight;
@@ -385,14 +409,15 @@ function firmwareCard(session: api.Session | null) {
       logLine(`downloaded ${version} (${image.byteLength} bytes)\n`);
 
       // esptool needs the port to itself. If the settings page is holding it
-      // open for instant pushes, hand it over first -- otherwise the port
-      // picker offers a device that is already claimed and the flash fails
-      // with nothing on screen to explain why.
-      if (liveConnection()) {
-        logLine('releasing the serial port held for instant push\n');
-        await closeShared();
-      }
-      fwStatus.replaceChildren(note('Pick the device port, then keep it plugged in…'));
+      // esptool needs the port to itself and at its own baud rate. Take the
+      // one already open rather than closing it and asking again: prompting
+      // for a device the page is currently showing as connected is a poor way
+      // to start something destructive.
+      const held = liveConnection() ? await takePort() : null;
+      if (held) logLine('using the cable already connected\n');
+      fwStatus.replaceChildren(
+        note(held ? 'Keep it plugged in…' : 'Pick the device port, then keep it plugged in…'),
+      );
 
       await flashFirmware(
         image,
@@ -404,6 +429,7 @@ function firmwareCard(session: api.Session | null) {
           },
         },
         { eraseNvs: eraseBox.checked },
+        held,
       );
 
       fwBar.style.width = '100%';
@@ -454,6 +480,7 @@ function firmwareCard(session: api.Session | null) {
         'flash it again. Wi-Fi credentials are preserved — the flasher skips the ' +
         'region they live in.',
     ),
+    cableNote,
     el('label', { class: 'lbl' }, 'Version'),
     fwSelect,
     eraseRow,
@@ -746,14 +773,23 @@ async function page(session: api.Session | null) {
       pushHint.replaceChildren(note(msg, tone));
       return;
     }
+    // "Within about ten seconds" is only true of a dial that is actually
+    // checking in. last_seen is written at most every 15 minutes, so only a
+    // much older stamp than that means anything -- hence 30.
+    const seen = status?.lastSeen ?? 0;
+    const quiet = Boolean(session && seen && Date.now() / 1000 - seen > 1800);
+
     pushHint.replaceChildren(
       note(
         !serialSupported()
           ? 'This browser has no Web Serial, so pushes arrive at the dial’s next poll.'
           : liveConnection()
             ? 'Cable attached — pushes apply instantly.'
-            : 'Pushes reach the dial at its next poll, within about ten seconds. ' +
-              'Connect over USB above to apply them instantly.',
+            : quiet
+              ? `The dial has not checked in since ${shortAgo(seen)}. A push is saved either ` +
+                'way and reaches it when it is next online.'
+              : 'Pushes reach the dial at its next poll, within about ten seconds. ' +
+                'Connect over USB above to apply them instantly.',
         liveConnection() ? 'ok' : 'info',
       ),
     );

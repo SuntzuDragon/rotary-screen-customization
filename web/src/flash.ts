@@ -48,12 +48,18 @@ export async function flashFirmware(
   image: ArrayBuffer,
   hooks: FlashHooks,
   opts: FlashOpts = {},
+  /**
+   * Port to use instead of asking. The page usually already has one the user
+   * picked, and prompting again for the device it is showing as connected is
+   * a confusing way to start something destructive.
+   */
+  existing?: SerialPort | null,
 ): Promise<void> {
   if (!('serial' in navigator)) {
     throw new Error('This browser has no Web Serial. Use desktop Chrome, Edge, or Opera.');
   }
 
-  const port = await navigator.serial.requestPort();
+  const port = existing ?? (await navigator.serial.requestPort());
   const transport = new Transport(port, true);
 
   const terminal = {

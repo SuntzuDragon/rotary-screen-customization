@@ -146,6 +146,28 @@ export async function openShared(
   return live;
 }
 
+/**
+ * Hand the open port over to something else -- in practice the flasher, which
+ * drives it with esptool and needs it exclusively at a different baud rate.
+ *
+ * Returns the port so the caller can go on using the one the user already
+ * picked. Closing and re-prompting would make the page ask for a device it is
+ * currently telling you it is connected to.
+ */
+export async function takePort(): Promise<SerialPort | null> {
+  const conn = live;
+  const port = livePort;
+  live = null;
+  livePort = null;
+  if (conn) {
+    announce();
+    // Stop reading, then close: esptool opens it again at its own baud rate.
+    await conn.improv.stop().catch(() => {});
+    await port?.close().catch(() => {});
+  }
+  return port;
+}
+
 /** Release the port. The flasher needs it exclusively, so it calls this first. */
 export async function closeShared() {
   const conn = live;
