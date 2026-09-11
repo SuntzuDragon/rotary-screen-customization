@@ -1,4 +1,4 @@
-import { buildSnapshot, lastRateRemaining, verifyToken } from './github';
+import { GitHubError, buildSnapshot, lastRateRemaining, verifyToken } from './github';
 import { buildPayload, diffSnapshots } from './payload';
 import {
   clearUserToken,
@@ -440,16 +440,27 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       const body = await req.json().catch(() => null);
       const next = sanitiseConfig(body, current);
       if (typeof next === 'string') return fail(400, next);
-      await putConfig(env, id, next);
-      // A changed login has no cached snapshot yet -- fetch it now.
-      // A changed username has no cached snapshot yet -- fetch it now.
-      const { token, personal } = await tokenFor(env, id);
-      const scope = snapshotScope(next.login, personal ? id : null);
-      if (next.login !== current.login && !(await getSnapshot(env, scope))) {
-        ctx.waitUntil(
-          refreshLogin(env, next.login, token, personal ? id : null).catch(() => {}),
-        );
+      // A new account is resolved before it is saved.
+      //
+      // A typo used to be accepted silently and surface only as a dial that
+      // stopped updating. Fetching it here -- which is also the snapshot the
+      // dial is about to ask for -- turns that into an error at the moment it
+      // can still be fixed, and means the page can show the new account's
+      // repos as soon as the push returns.
+      if (next.login.toLowerCase() !== current.login.toLowerCase()) {
+        const { token, personal } = await tokenFor(env, id);
+        try {
+          await refreshLogin(env, next.login, token, personal ? id : null);
+        } catch (err) {
+          if (err instanceof GitHubError && err.status === 404) {
+            return fail(400, `There is no GitHub user called ${next.login}.`);
+          }
+          // GitHub being slow or rate-limited is no reason to refuse a
+          // setting. Save it; the cron fills the cache.
+          console.error('login refresh failed', err);
+        }
       }
+      await putConfig(env, id, next);
       return json(next, { headers: { 'access-control-allow-origin': '*' } });
     }
   }

@@ -89,10 +89,14 @@ export async function fetchProfile(
 
   const body = (await res.json()) as {
     data?: { user: unknown; rateLimit?: { remaining: number } };
-    errors?: { message: string }[];
+    errors?: { message: string; type?: string }[];
   };
   if (body.errors?.length) {
-    throw new GitHubError(body.errors.map((e) => e.message).join('; '), 200);
+    // A login that does not exist comes back as a NOT_FOUND error, not as an
+    // empty user -- so without this it read as a generic failure, and a typo
+    // was indistinguishable from GitHub being down.
+    const missing = body.errors.some((e) => e.type === 'NOT_FOUND');
+    throw new GitHubError(body.errors.map((e) => e.message).join('; '), missing ? 404 : 200);
   }
   const user = body.data?.user as
     | {

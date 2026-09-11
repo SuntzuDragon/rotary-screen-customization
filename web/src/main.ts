@@ -529,7 +529,7 @@ function firmwareCard(session: api.Session | null) {
 /** What this render is looking at. See the note where it is built. */
 interface PageContext {
   session: api.Session | null;
-  config: DeviceConfig;
+  readonly config: DeviceConfig;
   readonly status: api.DeviceState | null;
   /** Re-render the whole page against a different dial, or none. */
   relink: (next: api.Session | null) => void;
@@ -663,7 +663,7 @@ function deviceBar(ctx: PageContext) {
   paint();
   ctx.onChange(paint);
 
-  return el(
+  const node = el(
     'section',
     { class: 'card devbar' },
     el(
@@ -675,6 +675,12 @@ function deviceBar(ctx: PageContext) {
     ),
     status,
   );
+  // The bar's height varies with its message, and the sticky push card has to
+  // sit just below it rather than on top of it.
+  new ResizeObserver(() =>
+    document.documentElement.style.setProperty('--devbar-h', `${node.offsetHeight}px`),
+  ).observe(node);
+  return node;
 }
 
 /* -------------------------------- config -------------------------------- */
@@ -871,6 +877,11 @@ async function page(session: api.Session | null) {
   };
   const accentRow = el('div', { class: 'swatch-row' }, accent, accentReset);
 
+  // Also driven by refreshDirty, so declared up here with the others it drives.
+  const loginHint = el('div', { class: 'status' });
+  let loginInvalid = false;
+  const pushCard = el('section', { class: 'card push-card' }, pushBtn, pushNote, pushHint);
+
   const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
 
   const refreshDirty = () => {
@@ -878,12 +889,24 @@ async function page(session: api.Session | null) {
     // point is to see the choice, and the preview alone is 240px of it.
     applyAccent(draft.theme.accent);
     accentReset.disabled = draft.theme.accent.toLowerCase() === DEFAULT_ACCENT.toLowerCase();
-    pushBtn.disabled = !dirty();
+    pushBtn.disabled = !dirty() || loginInvalid;
     pushNote.replaceChildren(
       dirty()
         ? note('Unsaved changes — push to send them to the dial.')
         : note('The dial matches these settings.', 'ok'),
     );
+    pushCard.classList.toggle('dirty', dirty());
+
+    // Every setting waits for Push, but a username is the one people expect to
+    // take effect as they type -- so say so right under it.
+    if (!loginInvalid) {
+      const pending = draft.login.toLowerCase() !== config.login.toLowerCase();
+      loginHint.replaceChildren(
+        ...(pending
+          ? [note(`Push to switch the dial to @${draft.login}. Its repos load once it is saved.`)]
+          : []),
+      );
+    }
     preview.draw();
   };
 
@@ -896,6 +919,7 @@ async function page(session: api.Session | null) {
     if (!session) return;
     pushBtn.disabled = true;
     pushNote.replaceChildren(note('Pushing…'));
+    const prevLogin = config.login;
     try {
       config = await api.putConfig(session, draft);
       draft = structuredClone(config);
@@ -903,6 +927,19 @@ async function page(session: api.Session | null) {
       pushNote.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
       pushBtn.disabled = false;
       return;
+    }
+
+    // The worker resolves a new account before saving it, so its repos exist
+    // by now. Swap them in, and the preview, rather than leaving the previous
+    // account's cards on screen under the new name.
+    if (prevLogin.toLowerCase() !== config.login.toLowerCase()) {
+      allRepos = await api
+        .getRepos(session)
+        .then((r) => r.repos.map((x) => ({ name: x.name, stars: x.stars })))
+        .catch(() => []);
+      renderRepos();
+      payload = (await api.getPreview(session).catch(() => null)) ?? payload;
+      notifyBar();
     }
 
     // With the cable in, ask the device to fetch now and report back. That
@@ -983,9 +1020,21 @@ async function page(session: api.Session | null) {
   loginInput.value = draft.login;
   loginInput.oninput = () => {
     const v = loginInput.value.trim();
+    // An unusable name used to be ignored silently, leaving the previous one
+    // in the draft while the field showed something else -- so Push would have
+    // sent a name you were no longer looking at. Say so, and hold Push.
+    loginInvalid = !/^[\w-]{1,39}$/.test(v);
+    if (loginInvalid) {
+      loginHint.replaceChildren(
+        note(v ? 'That is not a valid GitHub username.' : 'Enter a GitHub username.', 'err'),
+      );
+      refreshDirty();
+      return;
+    }
     // Changing account invalidates the repo selection: the names belong to the
-    // previous user. null means "all repos", which is the right default here.
-    if (/^[\w-]{1,39}$/.test(v)) edit({ login: v, repos: null });
+    // previous user. null means "the top ones", the right default here.
+    edit({ login: v, repos: null });
+    renderRepos();
   };
 
   /*
@@ -1027,6 +1076,19 @@ async function page(session: api.Session | null) {
 
   function renderRepos() {
     autoBox.checked = draft.repos === null;
+
+    // These are the saved account's repos. While a different one is waiting to
+    // be pushed, listing them under the new name is exactly the contradiction
+    // that made the username field confusing.
+    const pendingLogin = draft.login.toLowerCase() !== config.login.toLowerCase();
+    autoBox.disabled = pendingLogin;
+    if (pendingLogin) {
+      repoCount.replaceChildren(
+        note(`@${draft.login}'s repos load once you push. It starts on the top ${MAX_DEVICE_REPOS}.`),
+      );
+      repoList.replaceChildren();
+      return;
+    }
     if (allRepos.length === 0) {
       repoCount.replaceChildren();
       repoList.replaceChildren(note('This account has no repos to show.'));
@@ -1291,7 +1353,9 @@ async function page(session: api.Session | null) {
 
   const pageCtx: PageContext = {
     session,
-    config,
+    get config() {
+      return config;
+    },
     get status() {
       return status;
     },
@@ -1318,7 +1382,7 @@ async function page(session: api.Session | null) {
   const settings = el(
     'fieldset',
     { class: 'fs stack' },
-    el('section', { class: 'card' }, pushBtn, pushNote, pushHint),
+    pushCard,
     el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
     el(
       'section',
@@ -1331,6 +1395,7 @@ async function page(session: api.Session | null) {
           'changing this affects only this device.',
       ),
       loginInput,
+      loginHint,
     ),
     el('section', { class: 'card' }, el('h2', {}, 'Repos'), autoRow, repoCount, repoList),
     el(

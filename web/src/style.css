@@ -121,6 +121,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 .tag { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
+/* While there is something to push, keep the button in view. The settings it
+   applies to run the length of the page, and "do I have to press push?" was a
+   real question when the button had scrolled away. Sticks inside the settings
+   fieldset only, so it leaves once you are down among Wi-Fi and Firmware. */
+.push-card.dirty {
+  position: sticky;
+  top: calc(var(--devbar-h, 64px) + 10px);
+  z-index: 4;
+  border-color: var(--accent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
 /* repo ordering
    A chosen repo is a card you can pick up; one that is not shown is a plain
    row. The difference has to be obvious at a glance, because only one of them
