@@ -5,34 +5,81 @@
 [![firmware](https://img.shields.io/badge/firmware-ESP32--S3%20%2F%20LVGL%208.3-E7352C?logo=espressif&logoColor=white)](firmware/)
 
 GitHub stats on a knob you can spin — for the **Elecrow CrowPanel 1.28" HMI ESP32
-Rotary Display**, a 240x240 round IPS panel with a rotary encoder and touch.
+Rotary Display**, a 240×240 round IPS panel with a rotary encoder. It has a
+touchscreen too, but everything is on the knob.
 
-![config UI](docs/ui-config.png)
+![Settings page](docs/ui-settings.png)
 
-Turn the knob to page through repos, press to change screens. Set it up from a
-browser over USB: no phone, no captive portal, no pairing code, nothing typed
-twice.
+Set it up from a browser over USB: no phone, no captive portal, no pairing code,
+nothing typed twice.
+
+## What it does
+
+**On the dial**
+
+- **Three screens:** a summary (contributions, stars, followers), one card per
+  repo — up to eight — and an activity ticker (new stars, PRs, pushes).
+- **Turn** to move within a screen, **press** to jump to the next one, **hold**
+  for a badge with the dial's id, firmware version and the date it was flashed.
+- Auto-advances on a timer you choose, and holds still while the badge is up.
+- Pulses its LED when a repo picks up a new star.
+- Keeps its last stats in flash, so after a power cut it redraws straight away
+  instead of waiting for Wi-Fi to come back.
+
+**On the site** — one page, at [hdog.imcb.dev](https://hdog.imcb.dev)
+
+- A bar at the top names the dial you are editing, when it last checked in and
+  which network it is on. It is also the only place the USB cable gets
+  connected, and it warns if the cable is in a different dial.
+- Screens, repos, accent colour, brightness and auto-advance, previewed live on
+  a round mock of the dial and sent together with **Push**. The page takes on
+  the accent colour you pick.
+- Repos: either the top eight by stars, kept up to date automatically, or a list
+  you choose and drag into order.
+- **Push with the cable in applies instantly**, and the dial confirms it has the
+  new settings. Without the cable they land at its next check-in, within a
+  minute.
+- **Switch account:** type any GitHub username. Names GitHub does not know are
+  refused before anything is saved.
+- An optional personal GitHub token for private repos — encrypted at rest and
+  never sent to the device.
+- Wi-Fi setup and network changes, over the cable only: the password never
+  crosses the internet.
+- Firmware flashing from the browser — any published version, with progress and
+  a log. Wi-Fi and the dial's identity are kept unless you choose a factory
+  reset.
+- Before a dial is linked, the same page shows a sample dial with everything
+  disabled.
+
+![Repo picker](docs/ui-repos.png)
 
 ## How it fits together
 
 ```
-Browser (Web Serial + config UI)            Cloudflare Worker
-      |                                       |  KV: config, secrets, cached stats
-      | Improv Wi-Fi Serial over USB CDC      |  Cron */5: refresh from GitHub
-      v                                       |
- [ CrowPanel ] --- HTTPS GET /api/device/:id ->|--> GitHub GraphQL + REST
+Browser (Web Serial + settings page)          Cloudflare Worker
+      |                                         |  D1: devices, settings, cached stats, logs
+      | Improv Wi-Fi Serial over USB            |  KV: firmware images
+      v                                         |  Cron */5: refresh from GitHub
+ [ CrowPanel ] --- HTTPS GET /api/device/:id --->|--> GitHub GraphQL + REST
 ```
 
-The device never talks to GitHub. A Worker aggregates and caches on a fixed
-5-minute schedule, so the device makes one small HTTPS request a minute (usually
-answered `304`, zero bytes) and the GitHub token never leaves the server.
+The device never talks to GitHub. The Worker fetches and caches on a fixed
+5-minute schedule, so each dial makes one small HTTPS request a minute — usually
+answered `304` with no body — and the GitHub token never leaves the server.
+While the cable is in, the page can also tell the dial to fetch immediately (a
+small addition to the Improv protocol), which is what makes pushes instant.
+
+Everything runs on Cloudflare's free tier. D1 and KV both refuse requests past
+their limits rather than billing; R2 was left out because it has no hard spend
+cap. The binding limit is Workers requests — 100,000 a day, account-wide — which
+is roughly seventy dials at the one-minute poll.
 
 | Path | What |
 |---|---|
-| `worker/` | Cloudflare Worker: GitHub aggregation, device API, static asset hosting |
-| `web/` | Browser config UI — USB provisioning and a live round-screen preview |
+| `worker/` | Cloudflare Worker: GitHub aggregation, device API, hosts the site |
+| `web/` | The settings page: USB setup and flashing, live round-screen preview |
 | `firmware/` | PlatformIO / Arduino-ESP32 2.0.14 / LVGL 8.3.11 |
-| `docs/` | Measured API behaviour, and why several design decisions changed |
+| `docs/` | `context.md` — decisions and why; `research-findings.md` — measured hardware and API behaviour |
 
 ## Setup
 
@@ -43,75 +90,93 @@ Already deployed. To stand up a fresh copy:
 ```bash
 cd worker
 npm install
-npx wrangler kv namespace create DEVICES     # put the id in wrangler.toml
-npx wrangler secret put GH_TOKEN             # fine-grained read-only public-repo PAT
-npx wrangler secret put ENC_KEY              # openssl rand -base64 32
-cd ../web && npm install && npm run build    # Worker serves web/dist
+npx wrangler d1 create rotary-stats           # put the id in wrangler.toml
+npx wrangler kv namespace create DEVICES      # firmware images; put the id in wrangler.toml
+for f in migrations/*.sql; do npx wrangler d1 execute rotary-stats --remote --file "$f"; done
+npx wrangler secret put GH_TOKEN              # see below
+npx wrangler secret put ENC_KEY               # openssl rand -base64 32
+cd ../web && npm install && npm run build     # the Worker serves web/dist
 cd ../worker && npx wrangler deploy
 ```
 
-Pushes to `main` that touch `worker/` or `web/` redeploy automatically via
-`.github/workflows/deploy.yml`, which typechecks both halves, builds the UI, and
-smoke-tests `/api/health` afterwards. It needs a `CLOUDFLARE_API_TOKEN` repo
-secret (the "Edit Cloudflare Workers" token template).
+`GH_TOKEN` must be a **fine-grained personal access token with Public
+Repositories (read-only)** and no account permissions. Not a `gh` CLI token:
+those carry `repo`, and the shared cache would pick up private repositories.
 
-Set `DEFAULT_LOGIN` in `wrangler.toml` to the GitHub account to track. The
-Worker is bound to `hdog.imcb.dev`; wrangler creates that DNS record on deploy
-as long as the `imcb.dev` zone is in the same Cloudflare account.
-
-If you move it to a different domain, re-check the TLS chain — the firmware pins
-root CAs (see `firmware/include/certs.h`):
+`DEFAULT_LOGIN` in `wrangler.toml` is the account a newly set-up dial starts on.
+The Worker is bound to `hdog.imcb.dev`; wrangler creates the DNS record on deploy
+as long as the zone is in the same Cloudflare account. If you move it to another
+domain, re-check the TLS chain — the firmware pins root CAs
+(`firmware/include/certs.h`):
 
 ```bash
 echo | openssl s_client -connect <host>:443 -servername <host> 2>&1 | grep -E 'depth=|issuer='
 ```
 
+Pushes to `main` that touch `worker/` or `web/` redeploy through
+`.github/workflows/deploy.yml`, which typechecks both halves, builds the site and
+smoke-tests `/api/health`. It needs a `CLOUDFLARE_API_TOKEN` repo secret with
+**Workers Scripts, Workers KV and D1** edit permissions.
+
 ### 2. Firmware
 
-Point the firmware at your deployed Worker, then flash:
+Tag a release and CI builds it and publishes it to the Worker, where it appears
+in the site's version list:
+
+```bash
+git tag -a v0.3.1 -m "..." && git push origin v0.3.1
+```
+
+Pushes to `main` that touch `firmware/` build without publishing, as a compile
+check. Flash from the site's Firmware card, or locally:
 
 ```bash
 cd firmware
-pio run -e crowpanel128 \
-  -t upload --upload-port /dev/ttyACM0 \
-  # or set DEFAULT_BASE_URL in platformio.ini build_flags
+pio run -e crowpanel128 -t upload --upload-port /dev/ttyACM0
 ```
 
-`pio run -e crowpanel128-demo` builds a version that renders a baked-in payload
-with no Wi-Fi — useful for iterating on the UI without a network round trip.
+`pio run -e crowpanel128-demo` renders a baked-in payload with no Wi-Fi — handy
+for working on the dial's UI without a network round trip.
 
-### 3. Provision
+### 3. Set up a dial
 
-1. Plug the knob into a computer over USB.
-2. Open your Worker URL in **desktop Chrome, Edge, or Opera** (Web Serial is not
-   in Firefox or Safari, and not on mobile).
-3. *Connect device over USB* → pick the port → pick a Wi-Fi network from the list
-   the **device** scanned → enter the password.
-4. The device connects and hands the browser a URL containing its own id and
-   secret. You land on its settings page already authenticated.
+1. Plug it into a computer over USB.
+2. Open the site in **desktop Chrome, Edge or Opera** — Web Serial is not in
+   Firefox or Safari, or on mobile.
+3. **Connect over USB** in the bar at the top, and pick the port.
+4. In the Wi-Fi card, pick a network from the list the **dial** scanned and enter
+   the password.
+5. The dial joins, links itself to the page, and the settings unlock.
+
+The browser remembers the link after that, so later changes need no cable. The
+dial's settings link (`…/#d=<id>&k=<secret>`) works from any other device.
 
 ## Local development
 
 ```bash
-cd worker && npx wrangler dev          # API + built UI on :8787
-cd web    && npm run dev               # UI with HMR, proxying /api to :8787
+cd worker && npx wrangler dev                              # API + built site on :8787
+cd web    && npm run dev                                   # site with HMR, /api proxied to :8787
+cd web    && API_ORIGIN=https://hdog.imcb.dev npm run dev  # site against the live API
 ```
 
-Put a `GH_TOKEN` and `ENC_KEY` in `worker/.dev.vars` (gitignored). Use a
-fine-grained read-only public-repo PAT here too, not a `gh` CLI token — those
-carry `repo` and write access to the whole account, and the profile query asks
-for every repository the token can see.
+Put a `GH_TOKEN` (same rules as above) and an `ENC_KEY` in `worker/.dev.vars`,
+which is gitignored.
 
 ## Gotchas worth knowing
 
+- **Opening the serial port restarts the dial.** Chrome asserts DTR and RTS,
+  which are wired to BOOT and EN on this board. The page connects once and keeps
+  the port open rather than reconnecting for each action.
 - **Linux serial permissions.** Chrome cannot open `/dev/ttyACM0` unless you are
   in the `dialout` group: `sudo usermod -aG dialout $USER`, then log out and in.
-- **Web Serial needs HTTPS or localhost.** A `workers.dev` URL is fine.
-- **The device must be plugged into a computer** to be (re)provisioned. Plugged
-  into a wall charger there is no serial host.
+- **Web Serial needs HTTPS or localhost.**
+- **Setup needs a computer.** Plugged into a wall charger there is no serial host.
+- **The dial holds eight repo cards.** That is `kMaxRepos` in the firmware;
+  `MAX_DEVICE_REPOS` in the worker and the site must match it.
 - **LVGL is pinned to 8.3.11** and Arduino-ESP32 to 2.0.14. LVGL 9 is a breaking
-  API change; the vendor's display and touch glue is written against 8.3.
+  API change, and the vendor's display glue is written against 8.3.
 - **`/stats/commit_activity` answers `202` with an empty body on a cold cache.**
-  That is normal, not an error — the sparkline fills in on the next refresh.
+  That is normal; it fills in on the next refresh.
 
-See `docs/research-findings.md` for the measurements behind these.
+`docs/context.md` has the reasoning behind the design, and
+`docs/research-findings.md` the measurements behind these.

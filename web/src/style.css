@@ -130,7 +130,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   top: calc(var(--devbar-h, 64px) + 10px);
   z-index: 4;
   border-color: var(--accent);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  /* The first shadow is a solid band in the page colour filling the gap to the
+     bar above -- without it, the text scrolling past shows through that gap. */
+  box-shadow: 0 -12px 0 0 var(--bg), 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 /* repo ordering
