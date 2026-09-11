@@ -220,8 +220,11 @@ internally, so all 192 still compile) but shrank the binary by **63KB**.
 - `last_seen` is written at most every 15 minutes, so a device that looks stale
   by that column may be perfectly healthy — `device_logs` ships far more often
   and is the better liveness check.
-- Secrets: `GH_TOKEN` (fine-grained, public-repo read), `ENC_KEY` (base64 32
-  bytes, AES-GCM for user PATs). GitHub Actions needs `CLOUDFLARE_API_TOKEN`
+- Secrets: `GH_TOKEN` (fine-grained, **public-repo read only** — not a `gh` CLI
+  `gho_` token, which carries `repo` and would pull private repositories into
+  the shared snapshot cache), `ENC_KEY` (base64 32 bytes, AES-GCM for user
+  PATs). `ENC_KEY` was rotated on 2026-09-10; rotating it makes every stored
+  user PAT undecryptable, which `GET /api/token` now reports as `broken`. GitHub Actions needs `CLOUDFLARE_API_TOKEN`
   with **Workers + KV + D1 Edit** — D1 was missing initially and failed the
   publish step.
 - Releases: `git tag -a v0.2.8 -m "…" && git push origin v0.2.8`. Pushing to
@@ -267,6 +270,48 @@ and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 **Known open questions:**
 
 - Nothing outstanding on the config path — see *Instant push over USB* below.
+
+### The poll interval is the scaling lever
+
+Free-tier Workers allow **100,000 requests/day, account-wide**. One dial at the
+old 10s poll was 8,640 of them — about **eleven devices** before the account
+stops answering. D1 rows read (~125 devices), rows written (~260) and storage
+(~16 million) are all 10–25x further out. Storage was never the constraint.
+
+The 10s existed only to make a pushed setting appear quickly, and the USB
+request does that properly now. Upstream data cannot be fresher than the cron
+that fetches it (every 5 minutes), so anything under that only re-reads a cache.
+**60s** gives roughly seventy devices and loses nothing real.
+
+The cost is that an untethered push can take a minute, and the settings page
+says so — **that copy has to change with this number**, since nothing links
+them.
+
+### Stats survive a power cut
+
+`Stats` lived only in RAM, so a power cut left the dial blank until it had
+Wi-Fi, a clock, TLS and a round trip — with a router also rebooting, minutes of
+nothing. The last good payload is now a blob in NVS, restored before the network
+is even asked, and `serviceUi`'s existing rule (status cards never replace live
+data) means the dial comes back showing what it knew instead of walking through
+Connecting / Syncing clock / Registering every time.
+
+Written only when a poll returns `Updated`, so flash wear tracks how often the
+stats actually move. `loadBlob` requires an exact length match — bump the
+`kStatsKey` string when the `Stats` layout changes, because two layouts of the
+same size would otherwise be read into each other.
+
+### "Live on the dial" is now a fact
+
+The push confirmation used to re-read the service's own payload: proof the write
+landed, dressed up as proof the device had it. The payload carries `cfg`
+(`config.updatedAt`), the dial echoes it back as `x-config-applied` on its next
+poll, and the worker stores it on the device row. The settings page waits for
+`configApplied >= config.updatedAt` — a statement about the dial.
+
+That write is deliberately **not** gated on the 15-minute status cadence, unlike
+`last_seen`: it is what the page is waiting on, so it has to land as soon as the
+dial reports it.
 
 ### One page, and one answer about the cable
 
