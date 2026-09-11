@@ -137,6 +137,10 @@ Result poll(Stats& out) {
   // credentials never leave it.
   http.addHeader("x-wifi-ssid", WiFi.SSID());
   http.addHeader("x-wifi-rssi", String(WiFi.RSSI()));
+  // Which settings the dial is actually showing. `out` still holds the previous
+  // poll's values at this point, which is exactly what we want to report: the
+  // claim is about what is on screen now, not what is about to arrive.
+  http.addHeader("x-config-applied", String(out.configApplied));
   if (gEtag.length()) http.addHeader("If-None-Match", gEtag);
 
   const char* collect[] = {"ETag"};
@@ -170,6 +174,8 @@ Result poll(Stats& out) {
   out.followers = doc["p"]["followers"] | 0;
   out.stars = doc["p"]["stars"] | 0;
   out.contrib = doc["p"]["contrib"] | 0;
+
+  out.configApplied = doc["cfg"] | 0U;
 
   out.accent = parseHexColor(doc["theme"]["accent"] | "#F74C00");
   out.bg = parseHexColor(doc["theme"]["bg"] | "#0B0D10");

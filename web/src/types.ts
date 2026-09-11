@@ -32,6 +32,8 @@ export interface PayloadRepo {
 
 export interface DevicePayload {
   ttl: number;
+  /** config.updatedAt this payload was built from; the dial echoes it back. */
+  cfg: number;
   theme: Theme;
   decks: DeckId[];
   p: {

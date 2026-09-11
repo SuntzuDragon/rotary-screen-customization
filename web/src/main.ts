@@ -791,8 +791,8 @@ async function page(session: api.Session | null) {
    *
    * Settings live in the service and the dial picks them up on its next poll,
    * so a push always works. When the cable is in, the browser can tell the
-   * device to fetch right now -- which turns "up to ten seconds, then
-   * probably" into "done, and here is the confirmation from the device".
+   * device to fetch right now -- which turns "up to a minute, then probably"
+   * into "done, and here is the confirmation from the device".
    *
    * The cable itself is connected from the bar at the top of the page. This
    * card only reports what that means for pushing.
@@ -804,9 +804,9 @@ async function page(session: api.Session | null) {
       pushHint.replaceChildren(note(msg, tone));
       return;
     }
-    // "Within about ten seconds" is only true of a dial that is actually
-    // checking in. last_seen is written at most every 15 minutes, so only a
-    // much older stamp than that means anything -- hence 30.
+    // "Within about a minute" is only true of a dial that is actually checking
+    // in. last_seen is written at most every 15 minutes, so only a much older
+    // stamp than that means anything -- hence 30.
     const seen = status?.lastSeen ?? 0;
     const quiet = Boolean(session && seen && Date.now() / 1000 - seen > 1800);
 
@@ -819,7 +819,7 @@ async function page(session: api.Session | null) {
             : quiet
               ? `The dial has not checked in since ${shortAgo(seen)}. A push is saved either ` +
                 'way and reaches it when it is next online.'
-              : 'Pushes reach the dial at its next poll, within about ten seconds. ' +
+              : 'Pushes reach the dial at its next check-in, within about a minute. ' +
                 'Connect over USB above to apply them instantly.',
         liveConnection() ? 'ok' : 'info',
       ),
@@ -918,28 +918,41 @@ async function page(session: api.Session | null) {
       }
     }
 
-    // Otherwise confirm it at least reached the payload the device fetches:
-    // "saved" alone would be a claim about this browser, not about the dial.
-    pushNote.replaceChildren(note('Pushed — waiting for the service to pick it up…'));
-    const deadline = Date.now() + 90000;
+    /*
+     * Otherwise wait for the dial itself to say it has them.
+     *
+     * This used to re-read the service's own payload, which only proved the
+     * write had landed -- a claim about the service, dressed up as a claim
+     * about the device. The dial now echoes back the config.updatedAt it is
+     * showing, so this is the real thing: when configApplied catches up to
+     * what we just saved, the settings on screen are the settings on the dial.
+     */
+    pushNote.replaceChildren(note('Saved — waiting for the dial to pick it up…'));
+    payload = (await api.getPreview(session).catch(() => null)) ?? payload;
+    preview.draw();
+
+    const deadline = Date.now() + 150000;
     for (;;) {
-      const fresh = await api.getPreview(session).catch(() => null);
-      if (fresh) payload = fresh;
-      const agrees =
-        fresh !== null &&
-        fresh.decks.join() === config.decks.join() &&
-        fresh.theme.accent === config.theme.accent &&
-        (config.repos === null || fresh.repos.map((r) => r.n).join() === config.repos.join());
-      if (agrees) {
-        pushNote.replaceChildren(note('Live — the dial picks this up within about ten seconds.', 'ok'));
+      const fresh = await api
+        .getStatus(session)
+        .then((r) => r.device)
+        .catch(() => null);
+      if (fresh) status = fresh;
+      if (fresh && (fresh.configApplied ?? 0) >= config.updatedAt) {
+        pushNote.replaceChildren(note('Live on the dial.', 'ok'));
         break;
       }
       if (Date.now() > deadline) {
-        pushNote.replaceChildren(note('Pushed, but the service has not caught up yet.'));
+        // Not an error: the write is durable and the dial will apply it when it
+        // next checks in. Only the confirmation timed out.
+        pushNote.replaceChildren(
+          note('Saved. The dial has not checked in yet — it will apply these when it does.'),
+        );
         break;
       }
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 4000));
     }
+    notifyBar();
     refreshDirty();
   };
 

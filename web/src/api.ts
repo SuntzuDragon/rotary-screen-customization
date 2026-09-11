@@ -80,6 +80,8 @@ export interface DeviceState {
   lastSeen: number;
   wifiSsid?: string | null;
   wifiRssi?: number | null;
+  /** config.updatedAt the dial says it is showing. */
+  configApplied?: number | null;
 }
 
 export const getStatus = (s: Session) =>

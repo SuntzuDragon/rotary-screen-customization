@@ -40,6 +40,7 @@ interface DeviceRow {
   fw_version: string | null;
   wifi_ssid: string | null;
   wifi_rssi: number | null;
+  config_applied: number | null;
   config: string;
 }
 
@@ -141,15 +142,24 @@ export async function getStatus(env: Env, id: string): Promise<DeviceStatus | nu
         lastSeen: r.last_seen ?? 0,
         wifiSsid: r.wifi_ssid ?? null,
         wifiRssi: r.wifi_rssi ?? null,
+        configApplied: r.config_applied ?? null,
       }
     : null;
 }
 
 export async function putStatus(env: Env, id: string, st: DeviceStatus) {
   await env.DB.prepare(
-    'UPDATE devices SET fw_version = ?, last_seen = ?, wifi_ssid = ?, wifi_rssi = ? WHERE id = ?',
+    `UPDATE devices SET fw_version = ?, last_seen = ?, wifi_ssid = ?, wifi_rssi = ?,
+                        config_applied = ? WHERE id = ?`,
   )
-    .bind(st.fwVersion, st.lastSeen, st.wifiSsid ?? null, st.wifiRssi ?? null, id)
+    .bind(
+      st.fwVersion,
+      st.lastSeen,
+      st.wifiSsid ?? null,
+      st.wifiRssi ?? null,
+      st.configApplied ?? null,
+      id,
+    )
     .run();
 }
 

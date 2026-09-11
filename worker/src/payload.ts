@@ -90,6 +90,7 @@ export function buildPayload(
 
   return {
     ttl: 60,
+    cfg: config.updatedAt,
     theme: config.theme,
     decks: config.decks,
     p: {

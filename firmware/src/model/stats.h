@@ -38,5 +38,11 @@ struct Stats {
   uint16_t rotSec;       // 0 = manual only
   bool deckEnabled[3];   // summary, repos, activity
 
+  /**
+   * config.updatedAt this payload was built from, echoed back on the next poll
+   * so the settings page can tell "saved" from "the dial is showing it".
+   */
+  uint32_t configApplied;
+
   bool valid;
 };

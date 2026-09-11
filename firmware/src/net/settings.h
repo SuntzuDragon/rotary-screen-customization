@@ -37,4 +37,15 @@ uint32_t flashedAt();
  */
 void noteVersion(const char* version);
 
+/**
+ * Small binary cache in NVS.
+ *
+ * Used for the last good payload, so a dial that loses power with the router
+ * still down redraws what it knew instead of a blank screen. `loadBlob` only
+ * succeeds when the stored length matches exactly -- a struct that changed size
+ * reads as "nothing cached" rather than as garbage.
+ */
+bool saveBlob(const char* key, const void* data, size_t len);
+bool loadBlob(const char* key, void* out, size_t len);
+
 }  // namespace settings

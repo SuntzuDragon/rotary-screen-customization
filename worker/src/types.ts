@@ -120,6 +120,8 @@ export interface DeviceStatus {
   /** Network the device last reported. The password never leaves the device. */
   wifiSsid?: string | null;
   wifiRssi?: number | null;
+  /** config.updatedAt the device says it is showing. */
+  configApplied?: number | null;
 }
 
 /* ---------- device payload (short keys, ~3KB budget) ---------- */
@@ -139,6 +141,13 @@ export interface PayloadRepo {
 
 export interface DevicePayload {
   ttl: number;
+  /**
+   * config.updatedAt this payload was built from. The device echoes it back on
+   * its next poll, which is what turns "pushed" into "the dial has it" -- the
+   * settings page was otherwise confirming against the service, never the
+   * device.
+   */
+  cfg: number;
   theme: Theme;
   decks: DeckId[];
   p: {

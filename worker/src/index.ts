@@ -340,15 +340,30 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     const rssiHeader = Number(req.headers.get('x-wifi-rssi'));
     const wifiRssi = Number.isFinite(rssiHeader) ? clamp(rssiHeader, -120, 0) : null;
 
+    // What the dial says it is currently showing, echoed from the payload's cfg.
+    const appliedHeader = Number(req.headers.get('x-config-applied'));
+    const configApplied = Number.isFinite(appliedHeader) && appliedHeader > 0
+      ? Math.floor(appliedHeader)
+      : null;
+
     const now = Math.floor(Date.now() / 1000);
     ctx.waitUntil(
       (async () => {
         const prev = await getStatus(env, id);
         const versionChanged = prev?.fwVersion !== fwVersion;
         const networkChanged = (prev?.wifiSsid ?? null) !== wifiSsid;
+        // Not gated on the 15-minute cadence: this is what the settings page
+        // waits on, so it has to land as soon as the dial reports it.
+        const appliedChanged = (prev?.configApplied ?? null) !== configApplied;
         const stale = !prev || now - prev.lastSeen > 900;
-        if (versionChanged || networkChanged || stale) {
-          await putStatus(env, id, { fwVersion, lastSeen: now, wifiSsid, wifiRssi });
+        if (versionChanged || networkChanged || appliedChanged || stale) {
+          await putStatus(env, id, {
+            fwVersion,
+            lastSeen: now,
+            wifiSsid,
+            wifiRssi,
+            configApplied,
+          });
         }
       })(),
     );

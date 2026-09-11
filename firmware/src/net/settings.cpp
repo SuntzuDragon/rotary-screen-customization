@@ -71,6 +71,18 @@ void begin() {
   }
 }
 
+bool saveBlob(const char* key, const void* data, size_t len) {
+  return prefs.putBytes(key, data, len) == len;
+}
+
+bool loadBlob(const char* key, void* out, size_t len) {
+  if (!prefs.isKey(key)) return false;
+  // A size mismatch means the layout moved under the cache. Treat it as empty:
+  // half-reading a struct is worse than not having one.
+  if (prefs.getBytesLength(key) != len) return false;
+  return prefs.getBytes(key, out, len) == len;
+}
+
 uint32_t flashedAt() { return gFlashedAt; }
 
 void noteVersion(const char* version) {

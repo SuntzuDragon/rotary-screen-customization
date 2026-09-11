@@ -161,6 +161,19 @@ char gPhaseDetail[48] = "";
 Stats gShared{};
 bool gStatsDirty = false;
 
+/*
+ * Last good payload, kept in NVS.
+ *
+ * Stats lived only in RAM, so a power cut left the dial with nothing to draw
+ * until it had Wi-Fi, a clock, TLS and a round trip -- and with a router still
+ * coming up, that could be a blank screen for minutes. Cached, it redraws what
+ * it knew in the time it takes LVGL to start.
+ *
+ * Bump the key when the Stats layout changes: loadBlob checks the length, but
+ * two layouts of the same size would otherwise be read into each other.
+ */
+constexpr char kStatsKey[] = "stats1";
+
 // Connection request handed from the Improv handler to the network task.
 volatile bool gConnectRequested = false;
 volatile int8_t gConnectResult = -1;  // -1 pending, 0 failed, 1 ok
@@ -216,7 +229,7 @@ bool pollOnce() {
   // diagnostics, which is most of a free-tier write budget for data nobody
   // reads unless something is wrong.
   static uint8_t sinceShip = 0;
-  if (++sinceShip >= 30) {  // ~5 minutes at a 10s poll
+  if (++sinceShip >= 5) {  // ~5 minutes at a 60s poll
     sinceShip = 0;
     api::shipLogs();
   }
@@ -225,6 +238,9 @@ bool pollOnce() {
     gShared = fresh;
     gStatsDirty = true;
     xSemaphoreGive(gStateMutex);
+    // Only on a real change: an unchanged poll answers 304, so this writes
+    // flash about as often as the stats actually move.
+    settings::saveBlob(kStatsKey, &fresh, sizeof(fresh));
   }
   if (r != api::Result::Failed) setPhase(NetPhase::Ready);
   return r != api::Result::Failed;
@@ -276,14 +292,24 @@ void netTask(void*) {
       }
     }
 
-    // 10s. Config now updates server-side instantly (D1 is strongly
-    // consistent), so the poll interval is the *entire* remaining delay
-    // between pushing a setting and seeing it on the dial -- unless the
-    // browser is on the other end of the cable, in which case the request
-    // above removes even that. Unchanged polls answer 304 with an empty body,
-    // and even at this rate the device uses under 9% of the request budget and
-    // 0.2% of the database read budget.
-    if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 10000UL) {
+    /*
+     * 60s, and the number matters more than it looks.
+     *
+     * Upstream data cannot be fresher than the cron that fetches it, which runs
+     * every 5 minutes -- so polling faster than that only ever re-reads a cache
+     * and can never surface newer stats. The old 10s existed purely to make a
+     * pushed setting appear quickly, and the USB request above now does that
+     * properly, instantly, whenever the cable is in.
+     *
+     * What it buys is headroom. One device at 10s is 8,640 requests a day
+     * against a 100,000/day account-wide Workers cap -- about eleven devices
+     * before the whole account stops answering. At 60s it is 1,440, or roughly
+     * seventy. Storage was never the constraint; this was.
+     *
+     * The cost is that an untethered push can take up to a minute. The copy on
+     * the settings page says so, and has to be changed with this number.
+     */
+    if (gRegistered && WiFi.status() == WL_CONNECTED && millis() - lastPoll > 60000UL) {
       lastPoll = millis();
       pollOnce();
     }
@@ -617,6 +643,28 @@ void setup() {
     host.replace("http://", "");
     devlog::logf("[ui] setup screen: %s\n", host.c_str());
     ui::showSetup(host.c_str());
+  }
+
+  /*
+   * Draw the cached payload before the network is even asked.
+   *
+   * serviceUi keeps status cards off the screen once stats are up, so seeding
+   * here means the dial comes back showing what it knew rather than walking
+   * through Connecting / Syncing clock / Registering every power cycle. Only
+   * when there is Wi-Fi to come back to: an unprovisioned dial must still get
+   * the setup screen.
+   */
+  if (settings::hasWifi()) {
+    Stats cached{};
+    if (settings::loadBlob(kStatsKey, &cached, sizeof(cached)) && cached.valid) {
+      xSemaphoreTake(gStateMutex, portMAX_DELAY);
+      gShared = cached;
+      gStatsDirty = true;
+      xSemaphoreGive(gStateMutex);
+      devlog::logf("[boot] restored cached stats (%u bytes, %u repos)\n",
+                   static_cast<unsigned>(sizeof(cached)),
+                   static_cast<unsigned>(cached.repoCount));
+    }
   }
 
   // Networking lives on core 0 so core 1 never stalls on it.

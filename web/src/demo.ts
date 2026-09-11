@@ -26,6 +26,7 @@ export function demoPayload(): DevicePayload {
   const now = Math.floor(Date.now() / 1000);
   return {
     ttl: 300,
+    cfg: 0,
     theme: { ...DEMO_CONFIG.theme },
     decks: [...DEMO_CONFIG.decks],
     p: {
