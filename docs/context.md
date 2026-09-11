@@ -271,6 +271,57 @@ and the entropy fix below are both unreleased. Tag a `v0.2.8` to ship them.
 
 - Nothing outstanding on the config path — see *Instant push over USB* below.
 
+### Connect GitHub, with pasted tokens as the fallback
+
+Goal: stop shipping the owner's PAT as `GH_TOKEN`, and stop asking each person
+to generate one.
+
+**GitHub App, not OAuth App.** A classic OAuth App's only route to private repos
+is the `repo` scope — full read/write to every private repository, the exact
+over-privilege the security audit flagged. A GitHub App declares read-only
+permissions that cannot be over-granted, the person installing it picks which
+repos it sees, and its tokens are short-lived.
+
+**Why not simply require a PAT.** People paste classic tokens with `repo`, and
+the worker can check a token works but not that it is minimal. A PAT also either
+expires — and the dial silently stops updating — or never expires and is a
+permanent credential. App tokens renew themselves every eight hours while the
+dial is in use. The paste box survives as a collapsed "use a personal access
+token instead" for anyone who would rather not authorize an app.
+
+**Flag.** Everything is off until `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
+are set (`GITHUB_APP_SLUG` adds the private-repos install link). Until then the
+button is hidden, the start route answers 404, and the paste box is shown open.
+
+**Flow.** `POST /api/github/:id` (device key) writes a one-use `oauth_states` row
+and sets an `HttpOnly; SameSite=Lax` binder cookie → github.com/login/oauth/authorize
+→ `GET /api/github/callback` checks state *and* cookie, swaps the code, stores the
+pair encrypted → redirects to `/?github=<outcome>`. The cookie is not optional:
+without it anyone could start a sign-in for their own dial and have someone else
+finish it, and because GitHub skips the consent screen for an app you have
+already approved, one click on a crafted link would land the victim's token on
+the attacker's dial.
+
+**Renewal.** Access tokens last 8h; refresh tokens last six months and are
+**single-use** — spending one kills it. Two requests renewing at once would each
+spend the same token and the second would mark a good sign-in broken. So renewal
+takes a lease (a conditional `UPDATE ... WHERE version = ?` only one caller can
+win), starts 15 minutes before expiry so a caller that loses the race keeps using
+the still-valid token, and backs off 15 minutes after a failure instead of
+retrying every poll. The token endpoint answers **200 with an `error` field**
+when it refuses, so a status check alone would store an error string as a token.
+The app must keep "Expire user authorization tokens" switched on; the code
+refuses a non-expiring token rather than store one it cannot renew.
+
+**Disconnect** also revokes the grant (`DELETE /applications/{client_id}/grant`)
+so it leaves the person's GitHub Applications list — best effort; the local copy
+is deleted either way.
+
+**Still to do.** `GH_TOKEN` remains as the fallback for dials with no connection
+of their own. Removing it is a separate step, only after the real dial is
+connected: at that moment every unconnected dial stops updating. Not yet
+exercised end to end — that needs the app registered.
+
 ### The poll interval is the scaling lever
 
 Free-tier Workers allow **100,000 requests/day, account-wide**. One dial at the
