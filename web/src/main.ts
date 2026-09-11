@@ -877,9 +877,7 @@ async function page(session: api.Session | null) {
   };
   const accentRow = el('div', { class: 'swatch-row' }, accent, accentReset);
 
-  // Also driven by refreshDirty, so declared up here with the others it drives.
-  const loginHint = el('div', { class: 'status' });
-  let loginInvalid = false;
+  // Driven by refreshDirty, so declared up here with the others it drives.
   const pushCard = el('section', { class: 'card push-card' }, pushBtn, pushNote, pushHint);
 
   const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
@@ -889,7 +887,7 @@ async function page(session: api.Session | null) {
     // point is to see the choice, and the preview alone is 240px of it.
     applyAccent(draft.theme.accent);
     accentReset.disabled = draft.theme.accent.toLowerCase() === DEFAULT_ACCENT.toLowerCase();
-    pushBtn.disabled = !dirty() || loginInvalid;
+    pushBtn.disabled = !dirty();
     pushNote.replaceChildren(
       dirty()
         ? note('Unsaved changes — push to send them to the dial.')
@@ -897,16 +895,6 @@ async function page(session: api.Session | null) {
     );
     pushCard.classList.toggle('dirty', dirty());
 
-    // Every setting waits for Push, but a username is the one people expect to
-    // take effect as they type -- so say so right under it.
-    if (!loginInvalid) {
-      const pending = draft.login.toLowerCase() !== config.login.toLowerCase();
-      loginHint.replaceChildren(
-        ...(pending
-          ? [note(`Push to switch the dial to @${draft.login}. Its repos load once it is saved.`)]
-          : []),
-      );
-    }
     preview.draw();
   };
 
@@ -919,7 +907,6 @@ async function page(session: api.Session | null) {
     if (!session) return;
     pushBtn.disabled = true;
     pushNote.replaceChildren(note('Pushing…'));
-    const prevLogin = config.login;
     try {
       config = await api.putConfig(session, draft);
       draft = structuredClone(config);
@@ -927,19 +914,6 @@ async function page(session: api.Session | null) {
       pushNote.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
       pushBtn.disabled = false;
       return;
-    }
-
-    // The worker resolves a new account before saving it, so its repos exist
-    // by now. Swap them in, and the preview, rather than leaving the previous
-    // account's cards on screen under the new name.
-    if (prevLogin.toLowerCase() !== config.login.toLowerCase()) {
-      allRepos = await api
-        .getRepos(session)
-        .then((r) => r.repos.map((x) => ({ name: x.name, stars: x.stars })))
-        .catch(() => []);
-      renderRepos();
-      payload = (await api.getPreview(session).catch(() => null)) ?? payload;
-      notifyBar();
     }
 
     // With the cable in, ask the device to fetch now and report back. That
@@ -1018,23 +992,80 @@ async function page(session: api.Session | null) {
     autocomplete: 'off',
   }) as HTMLInputElement;
   loginInput.value = draft.login;
-  loginInput.oninput = () => {
+  /*
+   * Switching account is its own action, like connecting a token -- not part
+   * of the Push draft.
+   *
+   * As a draft field it was the one setting people expected to take effect
+   * when they committed to it, and it could not sit in a draft honestly: the
+   * repo list, the preview and the repo order all belong to one account, so a
+   * pending name left the page showing one account's data under another's.
+   */
+  const loginBtn = el('button', { class: 'primary' }, 'Switch account') as HTMLButtonElement;
+  const loginStatus = el('div', { class: 'status' });
+
+  const paintLogin = (msg?: string, tone?: 'ok' | 'info' | 'err') => {
     const v = loginInput.value.trim();
-    // An unusable name used to be ignored silently, leaving the previous one
-    // in the draft while the field showed something else -- so Push would have
-    // sent a name you were no longer looking at. Say so, and hold Push.
-    loginInvalid = !/^[\w-]{1,39}$/.test(v);
-    if (loginInvalid) {
-      loginHint.replaceChildren(
-        note(v ? 'That is not a valid GitHub username.' : 'Enter a GitHub username.', 'err'),
-      );
-      refreshDirty();
+    const valid = /^[\w-]{1,39}$/.test(v);
+    const same = v.toLowerCase() === config.login.toLowerCase();
+    loginBtn.disabled = !valid || same;
+    loginStatus.replaceChildren(
+      note(
+        msg ??
+          (!v
+            ? 'Enter a GitHub username.'
+            : !valid
+              ? 'That is not a valid GitHub username.'
+              : same
+                ? `This dial shows @${config.login}.`
+                : `Switch to show @${v} instead of @${config.login}.`),
+        tone ?? (v && !valid ? 'err' : same ? 'ok' : 'info'),
+      ),
+    );
+  };
+  paintLogin();
+  loginInput.oninput = () => paintLogin();
+  loginInput.onkeydown = (ev) => {
+    if (ev.key === 'Enter' && !loginBtn.disabled) loginBtn.click();
+  };
+
+  loginBtn.onclick = async () => {
+    if (!session) return;
+    const v = loginInput.value.trim();
+    loginBtn.disabled = true;
+    loginStatus.replaceChildren(note(`Looking up @${v}…`));
+    try {
+      // Only the account, and a fresh repo selection since the old names belong
+      // to the previous account. Anything else unsaved stays in the Push draft.
+      const saved = await api.putConfig(session, { login: v, repos: null });
+      config = saved;
+      draft = { ...draft, login: saved.login, repos: null, updatedAt: saved.updatedAt };
+    } catch (err) {
+      // Includes "There is no GitHub user called ..." -- the worker looks the
+      // account up before saving it.
+      paintLogin(err instanceof Error ? err.message : String(err), 'err');
+      loginBtn.disabled = false;
       return;
     }
-    // Changing account invalidates the repo selection: the names belong to the
-    // previous user. null means "the top ones", the right default here.
-    edit({ login: v, repos: null });
+
+    // The account was resolved before it was saved, so its repos and stats
+    // exist now. Swap them in rather than leaving the old account's on screen.
+    allRepos = await api
+      .getRepos(session)
+      .then((r) => r.repos.map((x) => ({ name: x.name, stars: x.stars })))
+      .catch(() => []);
     renderRepos();
+    payload = (await api.getPreview(session).catch(() => null)) ?? payload;
+    refreshDirty();
+    notifyBar();
+
+    const instant = await nudgeOverUsb();
+    paintLogin(
+      instant
+        ? `Now showing @${config.login} on the dial.`
+        : `Switched to @${config.login}. The dial changes over within about a minute.`,
+      'ok',
+    );
   };
 
   /*
@@ -1077,18 +1108,6 @@ async function page(session: api.Session | null) {
   function renderRepos() {
     autoBox.checked = draft.repos === null;
 
-    // These are the saved account's repos. While a different one is waiting to
-    // be pushed, listing them under the new name is exactly the contradiction
-    // that made the username field confusing.
-    const pendingLogin = draft.login.toLowerCase() !== config.login.toLowerCase();
-    autoBox.disabled = pendingLogin;
-    if (pendingLogin) {
-      repoCount.replaceChildren(
-        note(`@${draft.login}'s repos load once you push. It starts on the top ${MAX_DEVICE_REPOS}.`),
-      );
-      repoList.replaceChildren();
-      return;
-    }
     if (allRepos.length === 0) {
       repoCount.replaceChildren();
       repoList.replaceChildren(note('This account has no repos to show.'));
@@ -1392,10 +1411,12 @@ async function page(session: api.Session | null) {
         'p',
         { class: 'muted' },
         'Whose stats this dial shows. Each device has its own settings, so ' +
-          'changing this affects only this device.',
+          'changing this affects only this device. Switching applies straight ' +
+          'away — it does not wait for Push.',
       ),
       loginInput,
-      loginHint,
+      loginBtn,
+      loginStatus,
     ),
     el('section', { class: 'card' }, el('h2', {}, 'Repos'), autoRow, repoCount, repoList),
     el(
