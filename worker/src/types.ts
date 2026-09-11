@@ -5,6 +5,15 @@ export interface Env {
   GH_TOKEN: string;
   ENC_KEY: string;
   DEFAULT_LOGIN: string;
+  /**
+   * The GitHub App behind "Connect GitHub". Optional on purpose: without the
+   * client id and secret the button is simply not offered and pasted tokens are
+   * the only way in, so the code can ship before the app is registered.
+   */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** The `<slug>` in github.com/apps/<slug>, for the private-repos install link. */
+  GITHUB_APP_SLUG?: string;
 }
 
 export type DeckId = 'summary' | 'repos' | 'activity';

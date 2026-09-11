@@ -1,4 +1,12 @@
-import { GitHubError, buildSnapshot, lastRateRemaining, verifyToken } from './github';
+import {
+  GitHubError,
+  buildSnapshot,
+  exchangeCode,
+  lastRateRemaining,
+  refreshUserToken,
+  revokeGrant,
+  verifyToken,
+} from './github';
 import { buildPayload, diffSnapshots } from './payload';
 import {
   clearUserToken,
@@ -16,13 +24,20 @@ import {
   getConfig,
   getEvents,
   getSnapshot,
-  getUserToken,
   listDeviceIds,
   putAuth,
   putConfig,
   putEvents,
   putSnapshot,
   putUserToken,
+  getGithubAuth,
+  putAppToken,
+  claimRefresh,
+  storeRefreshed,
+  setRefreshLease,
+  putOAuthState,
+  takeOAuthState,
+  type GithubAuthRow,
 } from './store';
 import { decryptSecret, encryptSecret, safeEqual, sha256Hex } from './crypto';
 import { ALL_DECKS, MAX_DEVICE_REPOS, defaultConfig } from './types';
@@ -80,24 +95,73 @@ export async function refreshLogin(
 /**
  * The token to use for a device, and whether it belongs to that device.
  *
- * A stored PAT that will not decrypt falls back to the shared token, which is
- * the right behaviour -- the display keeps working -- but it is silent, and it
- * also moves the device out of its private cache scope. `broken` is how
- * GET /api/token tells "you never added one" apart from "yours stopped
- * working", which is what rotating ENC_KEY does to everybody at once.
+ * A stored token that will not work falls back to the shared one, which keeps
+ * the display going -- but it is silent, and it also moves the device out of
+ * its private cache scope. `broken` is how GET /api/token tells "you never
+ * connected" apart from "yours stopped working".
  */
 async function tokenFor(
   env: Env,
   id: string,
 ): Promise<{ token: string; personal: boolean; broken: boolean }> {
-  const stored = await getUserToken(env, id);
-  if (stored) {
-    const pat = await decryptSecret(env.ENC_KEY, stored);
-    if (pat) return { token: pat, personal: true, broken: false };
-    console.error(`stored token for ${id} would not decrypt`);
-    return { token: env.GH_TOKEN, personal: false, broken: true };
+  const row = await getGithubAuth(env, id);
+  if (!row) return { token: env.GH_TOKEN, personal: false, broken: false };
+
+  const token =
+    row.kind === 'app'
+      ? await appAccessToken(env, id, row)
+      : await decryptSecret(env.ENC_KEY, row.encrypted);
+  if (token) return { token, personal: true, broken: false };
+
+  console.error(`stored ${row.kind} token for ${id} is unusable`);
+  return { token: env.GH_TOKEN, personal: false, broken: true };
+}
+
+/** Renew this long before expiry, so whoever loses the lease still holds a valid token. */
+const REFRESH_AHEAD = 15 * 60;
+/** After a failed renewal, wait this long before trying again rather than every poll. */
+const REFRESH_BACKOFF = 15 * 60;
+
+/**
+ * The current access token for an app sign-in, renewed first if it is close to
+ * expiry.
+ *
+ * Refresh tokens are single-use: spending one returns a new pair and kills the
+ * old. Two requests renewing at once would both spend the same token and the
+ * second would find it gone, marking a good sign-in as broken. So renewal takes
+ * a lease -- a conditional update only one caller can win -- and starts well
+ * before expiry, so a caller that loses the race simply keeps using the current
+ * token, which is still valid.
+ */
+async function appAccessToken(env: Env, id: string, row: GithubAuthRow): Promise<string | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const current = await decryptSecret(env.ENC_KEY, row.encrypted);
+  const expiresAt = row.expires_at ?? 0;
+  if (current && expiresAt - now > REFRESH_AHEAD) return current;
+
+  const stillValid = current && expiresAt > now + 30 ? current : null;
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return stillValid;
+  if ((row.refresh_expires_at ?? 0) <= now) return stillValid; // needs a fresh sign-in
+  if (!(await claimRefresh(env, id, row.version, now))) return stillValid;
+
+  try {
+    const refresh = row.refresh_enc ? await decryptSecret(env.ENC_KEY, row.refresh_enc) : null;
+    if (!refresh) throw new Error('refresh token would not decrypt');
+    const pair = await refreshUserToken(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET, refresh);
+    await storeRefreshed(env, id, row.version, {
+      access: await encryptSecret(env.ENC_KEY, pair.accessToken),
+      refresh: await encryptSecret(env.ENC_KEY, pair.refreshToken),
+      expiresAt: now + pair.expiresIn,
+      refreshExpiresAt: now + pair.refreshExpiresIn,
+    });
+    return pair.accessToken;
+  } catch (err) {
+    // Usually a withdrawn authorization. Back off rather than retrying on every
+    // poll; the page reports it as broken once the current token runs out.
+    console.error(`token renewal failed for ${id}`, err);
+    await setRefreshLease(env, id, row.version, now + REFRESH_BACKOFF);
+    return stillValid;
   }
-  return { token: env.GH_TOKEN, personal: false, broken: false };
 }
 
 async function payloadFor(env: Env, id: string) {
@@ -151,6 +215,90 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
   return { login, repos, decks, theme, updatedAt: Math.floor(Date.now() / 1000) };
 }
 
+/* ---------- GitHub App sign-in ---------- */
+
+const BINDER_COOKIE = 'gh_oauth';
+
+const randomHex = (bytes: number) =>
+  [...crypto.getRandomValues(new Uint8Array(bytes))]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+function readCookie(req: Request, name: string): string | null {
+  for (const part of (req.headers.get('cookie') ?? '').split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return v.join('=');
+  }
+  return null;
+}
+
+/**
+ * GitHub's redirect back after someone approves the app.
+ *
+ * No device key arrives here -- it is a top-level navigation from github.com --
+ * so the `state` row says which dial the sign-in is for, and the binder cookie
+ * says it is the same browser that started it. The cookie is not optional:
+ * without it anyone could start a sign-in for their own dial and get somebody
+ * else to finish it, and since GitHub skips the consent screen for an app you
+ * have already approved, one click on a crafted link would put the victim's
+ * token on the attacker's dial.
+ */
+async function githubCallback(
+  req: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+): Promise<Response> {
+  const back = (outcome: string) =>
+    new Response(null, {
+      status: 302,
+      headers: {
+        location: `${url.origin}/?github=${outcome}`,
+        // One use: clear it whatever happened.
+        'set-cookie': `${BINDER_COOKIE}=; Path=/api/github; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+      },
+    });
+
+  const state = url.searchParams.get('state') ?? '';
+  const flow = state ? await takeOAuthState(env, state) : null;
+  const binder = readCookie(req, BINDER_COOKIE);
+  if (!flow || !binder || !safeEqual(flow.binderHash, await sha256Hex(binder))) {
+    return back('expired');
+  }
+  if (url.searchParams.get('error')) return back('denied');
+  const code = url.searchParams.get('code');
+  if (!code || !env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return back('failed');
+
+  try {
+    const pair = await exchangeCode(
+      env.GITHUB_CLIENT_ID,
+      env.GITHUB_CLIENT_SECRET,
+      code,
+      `${url.origin}/api/github/callback`,
+    );
+    const login = await verifyToken(pair.accessToken);
+    if (!login) return back('failed');
+
+    const now = Math.floor(Date.now() / 1000);
+    await putAppToken(env, flow.deviceId, {
+      access: await encryptSecret(env.ENC_KEY, pair.accessToken),
+      refresh: await encryptSecret(env.ENC_KEY, pair.refreshToken),
+      expiresAt: now + pair.expiresIn,
+      refreshExpiresAt: now + pair.refreshExpiresIn,
+      login,
+    });
+    // Re-fetch with the new access straight away, as the pasted-token path does.
+    const config = await ensureConfig(env, flow.deviceId);
+    ctx.waitUntil(
+      refreshLogin(env, config.login, pair.accessToken, flow.deviceId).catch(() => {}),
+    );
+    return back('connected');
+  } catch (err) {
+    console.error('github sign-in failed', err);
+    return back('failed');
+  }
+}
+
 /* ---------- routes ---------- */
 
 async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -171,6 +319,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
   if (!resource) return fail(404, 'not found');
   if (resource === 'health') return json({ ok: true, rate: lastRateRemaining });
+
+  if (resource === 'github' && id === 'callback' && !sub && req.method === 'GET') {
+    return githubCallback(req, env, ctx, url);
+  }
 
   /*
    * Firmware endpoints are unauthenticated on purpose: the flasher fetches the
@@ -324,6 +476,30 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   }
 
   if (!(await authorised(env, id, req))) return fail(401, 'unauthorised');
+
+  /* Start a GitHub App sign-in for this dial; the browser is sent to the URL returned. */
+  if (resource === 'github' && !sub && req.method === 'POST') {
+    if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+      return fail(404, 'GitHub sign-in is not set up on this server');
+    }
+    const state = randomHex(32);
+    const binder = randomHex(32);
+    await putOAuthState(env, state, id, await sha256Hex(binder));
+
+    const authorize = new URL('https://github.com/login/oauth/authorize');
+    authorize.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
+    authorize.searchParams.set('redirect_uri', `${url.origin}/api/github/callback`);
+    authorize.searchParams.set('state', state);
+    return json(
+      { url: authorize.toString() },
+      {
+        headers: {
+          'set-cookie': `${BINDER_COOKIE}=${binder}; Path=/api/github; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+          'cache-control': 'no-store',
+        },
+      },
+    );
+  }
 
   /* Device poll. */
   if (resource === 'device' && !sub && req.method === 'GET') {
@@ -484,10 +660,20 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
   if (resource === 'token') {
     if (req.method === 'GET') {
-      const stored = await getUserToken(env, id);
+      const row = await getGithubAuth(env, id);
       const { broken } = await tokenFor(env, id);
       return json(
-        { present: Boolean(stored), broken },
+        {
+          present: Boolean(row),
+          broken,
+          kind: row?.kind ?? null,
+          login: row?.login ?? null,
+          // What the page may offer: the button only appears once the app exists.
+          app: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+          installUrl: env.GITHUB_APP_SLUG
+            ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`
+            : null,
+        },
         { headers: { 'access-control-allow-origin': '*' } },
       );
     }
@@ -498,13 +684,22 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       const login = await verifyToken(body.token);
       if (!login) return fail(400, 'GitHub rejected that token');
 
-      await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token));
+      await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token), login);
       // Re-fetch straight away so the display reflects the new access.
       const config = await ensureConfig(env, id);
       ctx.waitUntil(refreshLogin(env, config.login, body.token, id).catch(() => {}));
       return json({ ok: true, login }, { headers: { 'access-control-allow-origin': '*' } });
     }
     if (req.method === 'DELETE') {
+      const row = await getGithubAuth(env, id);
+      if (row?.kind === 'app' && env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) {
+        const access = await decryptSecret(env.ENC_KEY, row.encrypted);
+        if (access) {
+          ctx.waitUntil(
+            revokeGrant(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET, access).catch(() => false),
+          );
+        }
+      }
       await clearUserToken(env, id);
       return json({ ok: true }, { headers: { 'access-control-allow-origin': '*' } });
     }

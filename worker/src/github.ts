@@ -193,3 +193,107 @@ export async function verifyToken(token: string): Promise<string | null> {
     return null;
   }
 }
+
+/* ---------- GitHub App sign-in ---------- */
+
+export interface UserTokenPair {
+  accessToken: string;
+  refreshToken: string;
+  /** Seconds. */
+  expiresIn: number;
+  refreshExpiresIn: number;
+}
+
+/**
+ * GitHub's OAuth token endpoint answers 200 even when it refuses, with the
+ * reason in an `error` field -- so a status check alone would happily store
+ * "bad_verification_code" as if it were a token.
+ */
+async function tokenEndpoint(params: Record<string, string>): Promise<UserTokenPair> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/x-www-form-urlencoded',
+      'user-agent': UA,
+    },
+    body: new URLSearchParams(params),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    refresh_token_expires_in?: number;
+    error?: string;
+    error_description?: string;
+  };
+  if (!res.ok || body.error || !body.access_token) {
+    throw new GitHubError(
+      body.error_description ?? body.error ?? `token endpoint ${res.status}`,
+      res.ok ? 400 : res.status,
+    );
+  }
+  if (!body.refresh_token || !body.expires_in) {
+    // The app was registered with expiring tokens switched off. Everything here
+    // assumes they expire and renews them; a token that never does would be
+    // stored without a refresh token and break on the first renewal.
+    throw new GitHubError(
+      'the GitHub App needs "Expire user authorization tokens" switched on',
+      400,
+    );
+  }
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
+    expiresIn: body.expires_in,
+    refreshExpiresIn: body.refresh_token_expires_in ?? 15_897_600, // six months
+  };
+}
+
+/** Swap the one-time code from the callback for a token pair. */
+export const exchangeCode = (
+  clientId: string,
+  clientSecret: string,
+  code: string,
+  redirectUri: string,
+) =>
+  tokenEndpoint({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    redirect_uri: redirectUri,
+  });
+
+/** Spend a refresh token. It stops working the moment this succeeds. */
+export const refreshUserToken = (clientId: string, clientSecret: string, refreshToken: string) =>
+  tokenEndpoint({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  });
+
+/**
+ * Withdraw the app's authorization entirely, so "Disconnect" here also removes
+ * it from the person's GitHub Applications page instead of leaving behind a
+ * grant nothing uses. Best effort: an expired token makes it fail, and the
+ * local copy is deleted either way.
+ */
+export async function revokeGrant(
+  clientId: string,
+  clientSecret: string,
+  accessToken: string,
+): Promise<boolean> {
+  const res = await fetch(`${API}/applications/${clientId}/grant`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+      accept: 'application/vnd.github+json',
+      'user-agent': UA,
+      'x-github-api-version': '2022-11-28',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+  return res.status === 204;
+}

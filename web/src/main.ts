@@ -1247,45 +1247,138 @@ async function page(session: api.Session | null) {
   rot.onchange = () => edit({ theme: { ...draft.theme, rotSec: Number(rot.value) } });
 
 
-  /* optional personal GitHub token */
+  /*
+   * Whose GitHub access the dial uses.
+   *
+   * "Connect GitHub" signs in through a GitHub App: read-only permissions the
+   * app declares and nobody can over-grant, and a token the server renews on its
+   * own, so it never quietly lapses on a dial sitting on a desk. Pasting a
+   * personal access token still works, one click further away, for anyone who
+   * would rather not authorize an app -- and it is the only way in until the
+   * app is registered, so it is shown open then.
+   */
+  const ghStatus = el('div', { class: 'status' });
+  const ghConnect = el('button', { class: 'primary' }, 'Connect GitHub') as HTMLButtonElement;
+  const ghDisconnect = el('button', { class: 'ghost' }, 'Disconnect') as HTMLButtonElement;
+  const ghInstall = el('a', { target: '_blank', rel: 'noreferrer' }, 'Choose which private repos it can see');
+  const ghInstallRow = el('p', { class: 'muted' }, ghInstall);
+
   const tokenInput = el('input', {
     class: 'input',
     type: 'password',
     placeholder: 'github_pat_...',
     autocomplete: 'off',
   }) as HTMLInputElement;
-  const tokenSave = el('button', { class: 'primary' }, 'Connect GitHub');
-  const tokenRemove = el('button', { class: 'ghost' }, 'Disconnect');
+  const tokenSave = el('button', { class: 'ghost' }, 'Use this token') as HTMLButtonElement;
   const tokenStatus = el('div', { class: 'status' });
+  const patBox = el(
+    'details',
+    { class: 'adv' },
+    el('summary', {}, 'Use a personal access token instead'),
+    el(
+      'p',
+      { class: 'muted' },
+      'Create one at ',
+      el(
+        'a',
+        {
+          href: 'https://github.com/settings/personal-access-tokens/new',
+          target: '_blank',
+          rel: 'noreferrer',
+        },
+        'github.com/settings/personal-access-tokens',
+      ),
+      ' with read-only access. It is encrypted at rest, checked against GitHub ' +
+        'before being saved, and never sent to the device.',
+    ),
+    tokenInput,
+    tokenSave,
+    tokenStatus,
+  ) as HTMLDetailsElement;
 
-  const paintToken = (present: boolean, detail?: string, tone?: 'ok' | 'info' | 'err') => {
-    tokenRemove.style.display = present ? '' : 'none';
-    tokenSave.textContent = present ? 'Replace token' : 'Connect GitHub';
-    tokenStatus.replaceChildren(
+  let tokenState: api.TokenState | null = null;
+
+  const paintGithub = (detail?: string, tone?: 'ok' | 'info' | 'err') => {
+    const t = tokenState;
+    const connected = Boolean(t?.present && !t.broken);
+    const viaApp = t?.kind === 'app';
+    ghConnect.hidden = !t?.app || (connected && viaApp);
+    ghConnect.textContent = connected ? 'Connect GitHub instead' : 'Connect GitHub';
+    ghDisconnect.hidden = !t?.present;
+    ghInstallRow.hidden = !(viaApp && connected && t?.installUrl);
+    if (t?.installUrl) ghInstall.setAttribute('href', t.installUrl);
+
+    ghStatus.replaceChildren(
       note(
         detail ??
-          (present
-            ? 'Using your token — private repos included, and requests count against your own rate limit.'
-            : "Right now this uses the owner's token, so only public data is visible."),
-        tone ?? (present ? 'ok' : 'info'),
+          (!t
+            ? 'Checking…'
+            : t.broken
+              ? `Your ${t.kind === 'app' ? 'GitHub sign-in' : 'token'} stopped working — connect ` +
+                'again. Until then the dial shows public data only.'
+              : !t.present
+                ? 'Not connected — the dial shows public data only.'
+                : viaApp
+                  ? `Connected as @${t.login}. The dial sees your public repos, plus any ` +
+                    'private ones you choose.'
+                  : `Using your personal token${t.login ? ` for @${t.login}` : ''} — ` +
+                    'private repos included.'),
+        tone ?? (t?.broken ? 'err' : t?.present ? 'ok' : 'info'),
       ),
     );
   };
-  paintToken(false);
-  if (session)
+
+  // Where a round trip through GitHub ended, carried back in the address bar.
+  const outcome = githubOutcome;
+  githubOutcome = null;
+  const OUTCOME: Record<string, [string, 'info' | 'err']> = {
+    denied: ['GitHub sign-in was cancelled.', 'info'],
+    expired: ['That sign-in expired or started in another browser — try again from here.', 'err'],
+    failed: ['GitHub sign-in did not complete — try again.', 'err'],
+  };
+
+  if (!session) {
+    ghStatus.replaceChildren(note('Link a dial to connect GitHub.'));
+  } else {
+    paintGithub();
     api
       .tokenStatus(session)
-    .then((s) =>
-      paintToken(
-        s.present,
-        s.broken
-          ? 'Your stored token can no longer be read — reconnect it. Until then this ' +
-              "falls back to the owner's token and shows public data only."
-          : undefined,
-        s.broken ? 'err' : undefined,
-      ),
-    )
-    .catch(() => {});
+      .then((t) => {
+        tokenState = t;
+        patBox.open = !t.app || t.kind === 'pat';
+        const o = outcome ? OUTCOME[outcome] : undefined;
+        paintGithub(o?.[0], o?.[1]);
+      })
+      .catch(() => ghStatus.replaceChildren(note('Could not read the GitHub connection.', 'err')));
+  }
+
+  ghConnect.onclick = async () => {
+    if (!session) return;
+    ghConnect.disabled = true;
+    ghStatus.replaceChildren(note('Sending you to GitHub…'));
+    try {
+      const { url } = await api.startGithub(session);
+      location.href = url; // comes back to /?github=<outcome>
+    } catch (err) {
+      paintGithub(err instanceof Error ? err.message : String(err), 'err');
+      ghConnect.disabled = false;
+    }
+  };
+
+  ghDisconnect.onclick = async () => {
+    if (!session) return;
+    ghDisconnect.disabled = true;
+    try {
+      await api.clearToken(session);
+      tokenState = await api.tokenStatus(session);
+      paintGithub('Disconnected — the dial shows public data only.', 'info');
+      payload = await api.getPreview(session).catch(() => payload);
+      preview.draw();
+    } catch (err) {
+      paintGithub(err instanceof Error ? err.message : String(err), 'err');
+    }
+    ghDisconnect.disabled = false;
+  };
 
   tokenSave.onclick = async () => {
     if (!session) return;
@@ -1299,25 +1392,15 @@ async function page(session: api.Session | null) {
     try {
       const { login } = await api.setToken(session, value);
       tokenInput.value = '';
-      paintToken(true, `Connected as ${login}.`);
+      tokenStatus.replaceChildren(note(`Saved — connected as @${login}.`, 'ok'));
+      tokenState = await api.tokenStatus(session);
+      paintGithub();
       payload = await api.getPreview(session).catch(() => payload);
       preview.draw();
     } catch (err) {
       tokenStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
     }
     tokenSave.disabled = false;
-  };
-
-  tokenRemove.onclick = async () => {
-    if (!session) return;
-    tokenRemove.disabled = true;
-    try {
-      await api.clearToken(session);
-      paintToken(false, 'Disconnected. Back to the built-in token.');
-    } catch (err) {
-      tokenStatus.replaceChildren(note(err instanceof Error ? err.message : String(err), 'err'));
-    }
-    tokenRemove.disabled = false;
   };
 
 
@@ -1437,29 +1520,13 @@ async function page(session: api.Session | null) {
       el(
         'p',
         { class: 'muted' },
-        "Stats are fetched with the owner's GitHub token by default, which only " +
-          'sees public data. Add your own to include private repos and use your ' +
-          'own rate limit instead.',
+        'Private repos need your own GitHub access. It is read-only, and never ' +
+          'reaches the device.',
       ),
-      el(
-        'p',
-        { class: 'muted' },
-        'Create one at ',
-        el(
-          'a',
-          {
-            href: 'https://github.com/settings/personal-access-tokens/new',
-            target: '_blank',
-            rel: 'noreferrer',
-          },
-          'github.com/settings/personal-access-tokens',
-        ),
-        ' — read-only is enough. It is encrypted at rest, checked against GitHub ' +
-          'before being saved, and never sent to the device.',
-      ),
-      tokenInput,
-      el('div', { class: 'row' }, tokenSave, tokenRemove),
-      tokenStatus,
+      ghStatus,
+      el('div', { class: 'row' }, ghConnect, ghDisconnect),
+      ghInstallRow,
+      patBox,
     ),
   ) as HTMLFieldSetElement;
   settings.disabled = !session;
@@ -1528,5 +1595,13 @@ function adoptSession(next: string): api.Session | null {
   const parsed = parseSession(next);
   return parsed ? api.saveSession(parsed) : null;
 }
+
+/**
+ * Outcome of a GitHub sign-in, carried back by the callback's redirect as
+ * `?github=`. Read once and removed from the address bar, so a reload -- or
+ * relinking to another dial -- does not report it again.
+ */
+let githubOutcome: string | null = new URLSearchParams(location.search).get('github');
+if (githubOutcome) history.replaceState(null, '', location.pathname + location.hash);
 
 void page(api.readSession());

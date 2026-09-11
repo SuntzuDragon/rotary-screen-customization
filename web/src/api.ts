@@ -139,8 +139,22 @@ export async function uploadFirmware(s: Session, file: File) {
   return body as { version: string; sha256: string; size: number };
 }
 
-export const tokenStatus = (s: Session) =>
-  call<{ present: boolean; broken: boolean }>(s, 'token');
+export interface TokenState {
+  present: boolean;
+  broken: boolean;
+  /** 'app' for Connect GitHub, 'pat' for a pasted token. */
+  kind: 'pat' | 'app' | null;
+  login: string | null;
+  /** Whether Connect GitHub is available on this server. */
+  app: boolean;
+  /** Where to choose which private repos the app can see. */
+  installUrl: string | null;
+}
+
+export const tokenStatus = (s: Session) => call<TokenState>(s, 'token');
+
+/** Begin a GitHub App sign-in; resolves to the github.com URL to send the browser to. */
+export const startGithub = (s: Session) => call<{ url: string }>(s, 'github', { method: 'POST' });
 
 export const setToken = (s: Session, token: string) =>
   call<{ ok: true; login: string }>(s, 'token', {

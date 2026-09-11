@@ -231,12 +231,21 @@ export async function putEvents(env: Env, scope: string, ev: DerivedEvent[]) {
 
 /* ---------- user tokens ---------- */
 
-export async function putUserToken(env: Env, id: string, encrypted: string) {
+/** A pasted token replaces whatever this device had, app sign-in included. */
+export async function putUserToken(
+  env: Env,
+  id: string,
+  encrypted: string,
+  login: string | null = null,
+) {
   await env.DB.prepare(
-    `INSERT INTO user_tokens (device_id, encrypted) VALUES (?, ?)
-     ON CONFLICT(device_id) DO UPDATE SET encrypted = excluded.encrypted`,
+    `INSERT INTO user_tokens (device_id, encrypted, kind, login) VALUES (?, ?, 'pat', ?)
+     ON CONFLICT(device_id) DO UPDATE SET
+       encrypted = excluded.encrypted, kind = 'pat', login = excluded.login,
+       refresh_enc = NULL, expires_at = NULL, refresh_expires_at = NULL,
+       version = user_tokens.version + 1, lease_until = NULL`,
   )
-    .bind(id, encrypted)
+    .bind(id, encrypted, login)
     .run();
 }
 
@@ -246,6 +255,118 @@ export async function getUserToken(env: Env, id: string): Promise<string | null>
     .bind(id)
     .first<{ encrypted: string }>();
   return r?.encrypted ?? null;
+}
+
+/* ---------- GitHub App sign-in ---------- */
+
+export interface GithubAuthRow {
+  kind: 'pat' | 'app';
+  /** The access token for an app sign-in, or the PAT itself. Encrypted. */
+  encrypted: string;
+  login: string | null;
+  refresh_enc: string | null;
+  expires_at: number | null;
+  refresh_expires_at: number | null;
+  version: number;
+  lease_until: number | null;
+}
+
+export async function getGithubAuth(env: Env, id: string): Promise<GithubAuthRow | null> {
+  await deviceRow(env, id); // ensures a pre-D1 device has been migrated
+  return env.DB.prepare(
+    `SELECT kind, encrypted, login, refresh_enc, expires_at, refresh_expires_at, version, lease_until
+       FROM user_tokens WHERE device_id = ?`,
+  )
+    .bind(id)
+    .first<GithubAuthRow>();
+}
+
+export interface AppTokenWrite {
+  /** Both already encrypted. */
+  access: string;
+  refresh: string;
+  expiresAt: number;
+  refreshExpiresAt: number;
+}
+
+/** A fresh app sign-in replaces whatever this device had. */
+export async function putAppToken(env: Env, id: string, t: AppTokenWrite & { login: string }) {
+  await env.DB.prepare(
+    `INSERT INTO user_tokens
+       (device_id, encrypted, kind, login, refresh_enc, expires_at, refresh_expires_at, version, lease_until)
+     VALUES (?, ?, 'app', ?, ?, ?, ?, 0, NULL)
+     ON CONFLICT(device_id) DO UPDATE SET
+       encrypted = excluded.encrypted, kind = 'app', login = excluded.login,
+       refresh_enc = excluded.refresh_enc, expires_at = excluded.expires_at,
+       refresh_expires_at = excluded.refresh_expires_at,
+       version = user_tokens.version + 1, lease_until = NULL`,
+  )
+    .bind(id, t.access, t.login, t.refresh, t.expiresAt, t.refreshExpiresAt)
+    .run();
+}
+
+/**
+ * Claim the right to spend this row's refresh token. The conditional update is
+ * the lock: exactly one caller per version gets `true`.
+ */
+export async function claimRefresh(env: Env, id: string, version: number, now: number) {
+  const r = await env.DB.prepare(
+    `UPDATE user_tokens SET lease_until = ?
+      WHERE device_id = ? AND version = ? AND (lease_until IS NULL OR lease_until < ?)`,
+  )
+    .bind(now + 30, id, version, now)
+    .run();
+  return (r.meta.changes ?? 0) === 1;
+}
+
+/**
+ * Store a refreshed pair -- but only over the version the lease was taken on,
+ * so a new sign-in that landed meanwhile is never overwritten by an old refresh.
+ */
+export async function storeRefreshed(env: Env, id: string, version: number, t: AppTokenWrite) {
+  await env.DB.prepare(
+    `UPDATE user_tokens
+        SET encrypted = ?, refresh_enc = ?, expires_at = ?, refresh_expires_at = ?,
+            version = version + 1, lease_until = NULL
+      WHERE device_id = ? AND version = ?`,
+  )
+    .bind(t.access, t.refresh, t.expiresAt, t.refreshExpiresAt, id, version)
+    .run();
+}
+
+/** Hold off further refresh attempts until `until` -- used to back off after a failure. */
+export async function setRefreshLease(env: Env, id: string, version: number, until: number) {
+  await env.DB.prepare('UPDATE user_tokens SET lease_until = ? WHERE device_id = ? AND version = ?')
+    .bind(until, id, version)
+    .run();
+}
+
+/** Sign-ins in flight live ten minutes. */
+const OAUTH_STATE_TTL = 600;
+
+export async function putOAuthState(env: Env, state: string, deviceId: string, binderHash: string) {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.batch([
+    // Sweep abandoned flows while here, so the table never accumulates.
+    env.DB.prepare('DELETE FROM oauth_states WHERE created_at < ?').bind(now - OAUTH_STATE_TTL),
+    env.DB.prepare(
+      'INSERT INTO oauth_states (state, device_id, binder_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).bind(state, deviceId, binderHash, now),
+  ]);
+}
+
+/** Single use: the row is deleted as it is read. Null when missing or stale. */
+export async function takeOAuthState(
+  env: Env,
+  state: string,
+): Promise<{ deviceId: string; binderHash: string } | null> {
+  const r = await env.DB.prepare(
+    'DELETE FROM oauth_states WHERE state = ? RETURNING device_id, binder_hash, created_at',
+  )
+    .bind(state)
+    .first<{ device_id: string; binder_hash: string; created_at: number }>();
+  if (!r || Math.floor(Date.now() / 1000) - r.created_at > OAUTH_STATE_TTL) return null;
+  return { deviceId: r.device_id, binderHash: r.binder_hash };
 }
 
 export async function clearUserToken(env: Env, id: string) {
