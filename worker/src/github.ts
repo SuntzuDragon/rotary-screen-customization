@@ -98,7 +98,9 @@ export async function fetchProfile(
   login: string,
   /** Shared token: public repositories only. Own PAT: whatever it can see. */
   publicOnly = true,
-  max = 20,
+  // GitHub's page maximum. Cost is the same 1 point at 20 or 100, and stopping
+  // at 20 left an account with more repos unable to pick the rest.
+  max = 100,
 ): Promise<{ profile: Omit<Snapshot, 'fetchedAt' | 'feed'>; viewer: string | null }> {
   const res = await fetch(`${API}/graphql`, {
     method: 'POST',
@@ -149,7 +151,10 @@ export async function fetchProfile(
   };
 }
 
-/** Org repos taken per sign-in. The dial holds eight; the picker can offer more. */
+/**
+ * Org repos taken per sign-in, best first. The dial holds eight; this leaves the
+ * picker room without letting a sprawling org double every refresh's size.
+ */
 const MAX_ORG_REPOS = 20;
 
 /**
@@ -172,22 +177,36 @@ export async function fetchInstalledOrgRepos(token: string): Promise<RepoSnapsho
     installations?: { id: number; account?: { type?: string } | null }[];
   };
 
-  const fullNames: string[] = [];
+  const candidates: { fullName: string; stars: number }[] = [];
   for (const inst of installations) {
     if (inst.account?.type !== 'Organization') continue;
+    // One page (100) per org: more pages would spend requests the refresh run
+    // does not have, and an org granting hundreds has its best ones on top anyway.
     const res = await fetch(`${API}/user/installations/${inst.id}/repositories?per_page=100`, {
       headers: headers(token),
     });
     if (!res.ok) continue;
     const { repositories = [] } = (await res.json()) as {
-      repositories?: { full_name: string; fork: boolean; archived?: boolean }[];
+      repositories?: {
+        full_name: string;
+        fork: boolean;
+        archived?: boolean;
+        stargazers_count?: number;
+      }[];
     };
     for (const r of repositories) {
       // Same rule as owned repos: no forks. Archived repos are frozen, not worth a card.
-      if (!r.fork && !r.archived) fullNames.push(r.full_name);
+      if (!r.fork && !r.archived) {
+        candidates.push({ fullName: r.full_name, stars: r.stargazers_count ?? 0 });
+      }
     }
   }
-  const wanted = fullNames.slice(0, MAX_ORG_REPOS);
+  // Sort before cutting. The list arrives in GitHub's order, not by stars, so
+  // cutting first could drop an org's most-starred repo and change the top eight.
+  const wanted = candidates
+    .sort((a, b) => b.stars - a.stars)
+    .slice(0, MAX_ORG_REPOS)
+    .map((c) => c.fullName);
   if (wanted.length === 0) return [];
 
   // One GraphQL call for all of them, aliased r0..rN, variables rather than
