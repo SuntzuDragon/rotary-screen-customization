@@ -559,6 +559,11 @@ function deviceBar(ctx: PageContext) {
   const dot = el('span', { class: 'dot' });
   const title = el('div', { class: 'devbar-title' });
   const detail = el('div', { class: 'devbar-detail' });
+  /** A state that needs explaining gets a sentence; a healthy dial gets chips. */
+  const say = (text: string) => {
+    detail.className = 'devbar-detail';
+    detail.replaceChildren(text);
+  };
   const action = el('button', { class: 'ghost' }, 'Connect over USB') as HTMLButtonElement;
   const extra = el('button', { class: 'ghost' }, 'Switch') as HTMLButtonElement;
   const status = el('div', { class: 'status' });
@@ -589,18 +594,21 @@ function deviceBar(ctx: PageContext) {
 
     if (conn && !conn.responsive) {
       title.textContent = 'Cable attached — no answer';
-      detail.textContent =
+      say(
         'The port is open but the dial is not talking. Flashing still works; ' +
-        'setting up Wi-Fi does not.';
+          'setting up Wi-Fi does not.',
+      );
       status.replaceChildren();
       return;
     }
 
     if (!session) {
       title.textContent = conn ? 'Dial attached, not set up yet' : 'No dial linked yet';
-      detail.textContent = conn
-        ? `${conn.info.firmware} ${conn.info.version} — give it a Wi-Fi network below.`
-        : 'Plug a dial in over USB to set it up. Everything below is a preview until then.';
+      say(
+        conn
+          ? `${conn.info.firmware} ${conn.info.version} — give it a Wi-Fi network below.`
+          : 'Plug a dial in over USB to set it up. Everything below is a preview until then.',
+      );
       status.replaceChildren();
       return;
     }
@@ -608,13 +616,18 @@ function deviceBar(ctx: PageContext) {
     title.textContent = `Dial ${session.id}`;
     if (mismatch) {
       extra.textContent = `Switch to ${attached}`;
-      detail.textContent = `The cable is in dial ${attached}, not this one.`;
+      say(`The cable is in dial ${attached}, not this one.`);
     } else {
-      const bits = [ctx.config.login];
-      if (ctx.status?.lastSeen) bits.push(`seen ${shortAgo(ctx.status.lastSeen)}`);
-      if (ctx.status?.wifiSsid) bits.push(`on ${ctx.status.wifiSsid}`);
-      if (conn) bits.push('cable attached');
-      detail.textContent = bits.join(' · ');
+      // Chips rather than one "a · b · c" line: in a 300px column that line broke
+      // mid-phrase, and chips wrap between facts instead.
+      const facts = [`@${ctx.config.login}`];
+      if (ctx.status?.lastSeen) facts.push(`seen ${shortAgo(ctx.status.lastSeen)}`);
+      if (ctx.status?.wifiSsid) facts.push(`Wi-Fi: ${ctx.status.wifiSsid}`);
+      detail.className = 'devbar-detail devbar-chips';
+      detail.replaceChildren(
+        ...facts.map((f) => el('span', { class: 'chip', title: f }, f)),
+        ...(conn ? [el('span', { class: 'chip chip-ok' }, 'cable attached')] : []),
+      );
     }
   };
 
