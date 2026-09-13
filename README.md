@@ -175,8 +175,6 @@ which is gitignored.
   `MAX_DEVICE_REPOS` in the worker and the site must match it.
 - **LVGL is pinned to 8.3.11** and Arduino-ESP32 to 2.0.14. LVGL 9 is a breaking
   API change, and the vendor's display glue is written against 8.3.
-- **`/stats/commit_activity` answers `202` with an empty body on a cold cache.**
-  That is normal; it fills in on the next refresh.
 
 `docs/context.md` has the reasoning behind the design, and
 `docs/research-findings.md` the measurements behind these.
