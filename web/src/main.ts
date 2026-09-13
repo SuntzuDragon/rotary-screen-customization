@@ -1261,7 +1261,7 @@ async function page(session: api.Session | null) {
   const ghStatus = el('div', { class: 'status' });
   const ghConnect = el('button', { class: 'primary' }, 'Connect GitHub') as HTMLButtonElement;
   const ghDisconnect = el('button', { class: 'ghost' }, 'Disconnect') as HTMLButtonElement;
-  const ghInstall = el('a', { target: '_blank', rel: 'noreferrer' }, 'Choose which private repos it can see');
+  const ghInstall = el('a', { target: '_blank', rel: 'noreferrer' }, 'Choose which private or organization repos it can see');
   const ghInstallRow = el('p', { class: 'muted' }, ghInstall);
 
   const tokenInput = el('input', {
@@ -1290,7 +1290,9 @@ async function page(session: api.Session | null) {
         'github.com/settings/personal-access-tokens',
       ),
       ' with read-only access. It is encrypted at rest, checked against GitHub ' +
-        'before being saved, and never sent to the device.',
+        'before being saved, and never sent to the device. Saving one replaces ' +
+        'your GitHub sign-in, and it covers your own repos only — organization ' +
+        'repos need Connect GitHub.',
     ),
     tokenInput,
     tokenSave,

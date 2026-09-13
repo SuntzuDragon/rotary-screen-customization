@@ -698,6 +698,18 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       const login = await verifyToken(body.token);
       if (!login) return fail(400, 'GitHub rejected that token');
 
+      // A pasted token replaces an app sign-in. Withdraw that authorization too,
+      // as Disconnect does, rather than leaving an unused grant behind on the
+      // person's GitHub account.
+      const previous = await getGithubAuth(env, id);
+      if (previous?.kind === 'app' && env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) {
+        const access = await decryptSecret(env.ENC_KEY, previous.encrypted);
+        if (access) {
+          ctx.waitUntil(
+            revokeGrant(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET, access).catch(() => false),
+          );
+        }
+      }
       await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token), login);
       // Fetch before answering, for the same reason as the app sign-in: the new
       // token moves this dial to its own cache scope, which is empty until then,

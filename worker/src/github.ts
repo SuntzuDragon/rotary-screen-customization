@@ -30,32 +30,40 @@ function headers(token: string, accept = 'application/vnd.github+json'): Headers
  * repository names and commit subjects into the shared cache. Asking for
  * public data explicitly means the scope of the token stops mattering.
  */
+/** The fields the dial shows for any repository, owned or granted through an org. */
+const REPO_FIELDS = `
+fragment RepoFields on Repository {
+  name
+  nameWithOwner
+  primaryLanguage{ name color }
+  stargazerCount
+  forkCount
+  pullRequests(states:OPEN){ totalCount }
+  issues(states:OPEN){ totalCount }
+  defaultBranchRef{
+    target{ ... on Commit { history(first:1){ nodes{ committedDate messageHeadline } } } }
+  }
+}`;
+
 const PROFILE_QUERY = `
 query($login:String!, $n:Int!, $privacy:RepositoryPrivacy){
+  viewer{ login }
   user(login:$login){
     name login
     followers{ totalCount }
     contributionsCollection{ contributionCalendar{ totalContributions } }
     repositories(first:$n, ownerAffiliations:OWNER, isFork:false, privacy:$privacy,
                  orderBy:{field:STARGAZERS, direction:DESC}){
-      nodes{
-        name
-        primaryLanguage{ name color }
-        stargazerCount
-        forkCount
-        pullRequests(states:OPEN){ totalCount }
-        issues(states:OPEN){ totalCount }
-        defaultBranchRef{
-          target{ ... on Commit { history(first:1){ nodes{ committedDate messageHeadline } } } }
-        }
-      }
+      nodes{ ...RepoFields }
     }
   }
   rateLimit{ cost remaining }
-}`;
+}
+${REPO_FIELDS}`;
 
 interface GqlRepoNode {
   name: string;
+  nameWithOwner: string;
   primaryLanguage: { name: string; color: string | null } | null;
   stargazerCount: number;
   forkCount: number;
@@ -69,6 +77,21 @@ interface GqlRepoNode {
 const epoch = (iso: string | null | undefined): number | null =>
   iso ? Math.floor(Date.parse(iso) / 1000) : null;
 
+function toRepoSnapshot(r: GqlRepoNode, name: string): RepoSnapshot {
+  const commit = r.defaultBranchRef?.target?.history.nodes[0] ?? null;
+  return {
+    name,
+    lang: r.primaryLanguage?.name ?? null,
+    langColor: r.primaryLanguage?.color ?? null,
+    stars: r.stargazerCount,
+    forks: r.forkCount,
+    openPRs: r.pullRequests.totalCount,
+    openIssues: r.issues.totalCount,
+    lastCommitAt: epoch(commit?.committedDate),
+    lastCommitMsg: commit?.messageHeadline ?? null,
+  };
+}
+
 /** Profile + repo stats in a single GraphQL call (cost: 1 point). */
 export async function fetchProfile(
   token: string,
@@ -76,7 +99,7 @@ export async function fetchProfile(
   /** Shared token: public repositories only. Own PAT: whatever it can see. */
   publicOnly = true,
   max = 20,
-): Promise<Omit<Snapshot, 'fetchedAt' | 'feed'>> {
+): Promise<{ profile: Omit<Snapshot, 'fetchedAt' | 'feed'>; viewer: string | null }> {
   const res = await fetch(`${API}/graphql`, {
     method: 'POST',
     headers: { ...headers(token), 'content-type': 'application/json' },
@@ -88,7 +111,7 @@ export async function fetchProfile(
   if (!res.ok) throw new GitHubError(`graphql ${res.status}`, res.status);
 
   const body = (await res.json()) as {
-    data?: { user: unknown; rateLimit?: { remaining: number } };
+    data?: { user: unknown; viewer?: { login: string }; rateLimit?: { remaining: number } };
     errors?: { message: string; type?: string }[];
   };
   if (body.errors?.length) {
@@ -112,28 +135,88 @@ export async function fetchProfile(
 
   if (body.data?.rateLimit) lastRateRemaining = String(body.data.rateLimit.remaining);
 
-  const repos: RepoSnapshot[] = user.repositories.nodes.map((r) => {
-    const commit = r.defaultBranchRef?.target?.history.nodes[0] ?? null;
-    return {
-      name: r.name,
-      lang: r.primaryLanguage?.name ?? null,
-      langColor: r.primaryLanguage?.color ?? null,
-      stars: r.stargazerCount,
-      forks: r.forkCount,
-      openPRs: r.pullRequests.totalCount,
-      openIssues: r.issues.totalCount,
-      lastCommitAt: epoch(commit?.committedDate),
-      lastCommitMsg: commit?.messageHeadline ?? null,
-    };
-  });
+  const repos: RepoSnapshot[] = user.repositories.nodes.map((r) => toRepoSnapshot(r, r.name));
 
   return {
-    login: user.login,
-    name: user.name,
-    followers: user.followers.totalCount,
-    contributions: user.contributionsCollection.contributionCalendar.totalContributions,
-    repos,
+    profile: {
+      login: user.login,
+      name: user.name,
+      followers: user.followers.totalCount,
+      contributions: user.contributionsCollection.contributionCalendar.totalContributions,
+      repos,
+    },
+    viewer: body.data?.viewer?.login ?? null,
   };
+}
+
+/** Org repos taken per sign-in. The dial holds eight; the picker can offer more. */
+const MAX_ORG_REPOS = 20;
+
+/**
+ * Repositories an organization has explicitly granted to the app, for the
+ * signed-in person.
+ *
+ * Deliberately not `ownerAffiliations: ORGANIZATION_MEMBER`. That returns every
+ * public repo of every org the account belongs to without anyone granting
+ * anything, and a big open-source org's 40k-star repos would push the person's
+ * own work out of the top eight. Installations are the explicit list: an org
+ * owner chose these.
+ *
+ * Needs a GitHub App user token (`ghu_`) -- a pasted PAT cannot list app
+ * installations, so callers skip it for those.
+ */
+export async function fetchInstalledOrgRepos(token: string): Promise<RepoSnapshot[]> {
+  const list = await fetch(`${API}/user/installations?per_page=100`, { headers: headers(token) });
+  if (!list.ok) return [];
+  const { installations = [] } = (await list.json()) as {
+    installations?: { id: number; account?: { type?: string } | null }[];
+  };
+
+  const fullNames: string[] = [];
+  for (const inst of installations) {
+    if (inst.account?.type !== 'Organization') continue;
+    const res = await fetch(`${API}/user/installations/${inst.id}/repositories?per_page=100`, {
+      headers: headers(token),
+    });
+    if (!res.ok) continue;
+    const { repositories = [] } = (await res.json()) as {
+      repositories?: { full_name: string; fork: boolean; archived?: boolean }[];
+    };
+    for (const r of repositories) {
+      // Same rule as owned repos: no forks. Archived repos are frozen, not worth a card.
+      if (!r.fork && !r.archived) fullNames.push(r.full_name);
+    }
+  }
+  const wanted = fullNames.slice(0, MAX_ORG_REPOS);
+  if (wanted.length === 0) return [];
+
+  // One GraphQL call for all of them, aliased r0..rN, variables rather than
+  // names spliced into the query text.
+  const variables: Record<string, string> = {};
+  const decls: string[] = [];
+  const picks: string[] = [];
+  wanted.forEach((full, i) => {
+    const [owner = '', name = ''] = full.split('/');
+    variables[`o${i}`] = owner;
+    variables[`n${i}`] = name;
+    decls.push(`$o${i}:String!`, `$n${i}:String!`);
+    picks.push(`r${i}: repository(owner:$o${i}, name:$n${i}){ ...RepoFields }`);
+  });
+  const res = await fetch(`${API}/graphql`, {
+    method: 'POST',
+    headers: { ...headers(token), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      query: `query(${decls.join(', ')}){\n${picks.join('\n')}\n}\n${REPO_FIELDS}`,
+      variables,
+    }),
+  });
+  if (!res.ok) return [];
+  // A repo removed since it was listed comes back null, with an error beside it.
+  // The rest are still good, so `errors` is not treated as failure here.
+  const body = (await res.json()) as { data?: Record<string, GqlRepoNode | null> };
+  return Object.values(body.data ?? {})
+    .filter((r): r is GqlRepoNode => Boolean(r))
+    .map((r) => toRepoSnapshot(r, r.nameWithOwner));
 }
 
 /**
@@ -166,11 +249,22 @@ export async function buildSnapshot(
   login: string,
   publicOnly = true,
 ): Promise<Snapshot> {
-  const [profile, feed] = await Promise.all([
+  const [{ profile, viewer }, feed] = await Promise.all([
     fetchProfile(token, login, publicOnly),
     fetchFeed(token, login),
   ]);
-  return { ...profile, feed, fetchedAt: Math.floor(Date.now() / 1000) };
+
+  // Org repos only for an app sign-in looking at its own account. On someone
+  // else's dial they would be the connected person's orgs, not the shown
+  // person's -- and a PAT, which is not `ghu_`, cannot list installations.
+  let repos = profile.repos;
+  if (!publicOnly && token.startsWith('ghu_') && viewer?.toLowerCase() === login.toLowerCase()) {
+    const org = await fetchInstalledOrgRepos(token).catch((): RepoSnapshot[] => []);
+    // Stable sort: on equal stars an owned repo stays ahead of an org one.
+    repos = [...repos, ...org].sort((a, b) => b.stars - a.stars);
+  }
+
+  return { ...profile, repos, feed, fetchedAt: Math.floor(Date.now() / 1000) };
 }
 
 /**
