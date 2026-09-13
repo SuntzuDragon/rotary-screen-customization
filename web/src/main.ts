@@ -197,7 +197,7 @@ function wifiCard(ctx: PageContext) {
     );
     blurb.textContent = !conn
       ? 'Changing networks needs the cable, since the password never goes through the ' +
-        'internet. Connect over USB at the top of the page.'
+        'internet. Use the Connect over USB button first.'
       : conn.responsive
         ? 'Changing networks keeps everything else — the dial keeps its identity and settings.'
         : 'The dial is not answering over the cable, so it cannot be told about a network. ' +
@@ -337,8 +337,8 @@ function firmwareCard(session: api.Session | null) {
         ? conn.responsive
           ? 'Cable attached — flashing will use it, and the dial comes back on its own.'
           : 'Cable attached. The dial is not answering, which is exactly what flashing fixes.'
-        : 'Flashing goes over the cable, never the network. Connect over USB at the top ' +
-          'of the page first.';
+        : 'Flashing goes over the cable, never the network. Use the Connect over USB ' +
+          'button first.';
     // The port is picked once, in the bar. Offering a second way in here is
     // what made it unclear which button connects what.
     flashBtn.disabled = !liveConnection() || fwSelect.value === '';
@@ -429,7 +429,7 @@ function firmwareCard(session: api.Session | null) {
       // to start something destructive.
       const held = await takePort();
       if (!held) throw new Error('The cable is no longer connected — reconnect at the top.');
-      logLine('using the cable connected at the top of the page\n');
+      logLine('using the cable already connected\n');
       fwStatus.replaceChildren(note('Keep it plugged in…'));
 
       await flashFirmware(
@@ -795,7 +795,7 @@ async function page(session: api.Session | null) {
    * device to fetch right now -- which turns "up to a minute, then probably"
    * into "done, and here is the confirmation from the device".
    *
-   * The cable itself is connected from the bar at the top of the page. This
+   * The cable itself is connected from the dial bar, not here. This
    * card only reports what that means for pushing.
    */
   const pushHint = el('div', { class: 'status' });
@@ -1282,7 +1282,12 @@ async function page(session: api.Session | null) {
         allRepos = repos.map((r) => ({ name: r.name, stars: r.stars }));
         renderRepos();
       })
-      .catch(() => repoMessage('Could not load repos.', 'err'));
+      .catch((err) =>
+        // A dial with no GitHub access is told what to do, not shown an error.
+        err instanceof Error && err.message.startsWith('Connect GitHub')
+          ? repoMessage(err.message)
+          : repoMessage('Could not load repos.', 'err'),
+      );
 
   const bright = el('input', {
     type: 'range',

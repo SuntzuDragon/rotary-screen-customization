@@ -23,8 +23,6 @@ const legacyPatKey = (id: string) => `dev:${id}:pat`;
 
 // Snapshots and derived events are keyed by GitHub login, not device, so two
 // devices watching the same account share one set of API calls.
-const snapKey = (login: string) => `snap:${login.toLowerCase()}`;
-const evKey = (login: string) => `ev:${login.toLowerCase()}`;
 
 export interface DeviceAuth {
   secretHash: string;
@@ -191,9 +189,10 @@ export async function getSnapshot(env: Env, scope: string): Promise<Snapshot | n
       return null;
     }
   }
-  const legacy = await getJSON<Snapshot>(env, snapKey(key));
-  if (legacy) await putSnapshot(env, key, legacy);
-  return legacy;
+  // No read-through to the old KV cache. It outlived the move to D1 by days, and
+  // deleting a D1 row only made the next read copy a stale KV snapshot back in --
+  // which is how days-old stats reappeared for a dial with no GitHub access.
+  return null;
 }
 
 export async function putSnapshot(env: Env, scope: string, s: Snapshot) {
@@ -216,7 +215,7 @@ export async function getEvents(env: Env, scope: string): Promise<DerivedEvent[]
       return [];
     }
   }
-  return (await getJSON<DerivedEvent[]>(env, evKey(scope))) ?? [];
+  return []; // no KV read-through, for the same reason as getSnapshot
 }
 
 /** Keep a bounded ring of synthesised events -- the device renders a handful. */

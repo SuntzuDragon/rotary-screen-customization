@@ -658,7 +658,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     const config = await ensureConfig(env, id);
     // Through snapshotScope like every other read: a device with its own PAT
     // has its data in a private scope, and must not be handed the shared one.
-    const { personal } = await tokenFor(env, id);
+    const { token, personal } = await tokenFor(env, id);
+    // Same rule as the dial's own payload: no access, no cached data. A stale
+    // snapshot would list repos this dial can never refresh.
+    if (!token) return fail(409, "Connect GitHub to see this dial's repos.");
     const snap = await getSnapshot(env, snapshotScope(config.login, personal ? id : null));
     if (!snap) return fail(503, 'no data yet');
     return json(
