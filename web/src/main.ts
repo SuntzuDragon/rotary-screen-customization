@@ -1315,9 +1315,13 @@ async function page(session: api.Session | null) {
             ? 'Checking…'
             : t.broken
               ? `Your ${t.kind === 'app' ? 'GitHub sign-in' : 'token'} stopped working — connect ` +
-                'again. Until then the dial shows public data only.'
+                (t.shared
+                  ? 'again. Until then the dial shows public data only.'
+                  : 'again for the dial to keep updating.')
               : !t.present
-                ? 'Not connected — the dial shows public data only.'
+                ? t.shared
+                  ? 'Not connected — the dial shows public data only.'
+                  : 'Not connected — connect GitHub so the dial can fetch its stats.'
                 : viaApp
                   ? `Connected as @${t.login}. The dial sees your public repos, plus any ` +
                     'private ones you choose.'
@@ -1371,7 +1375,12 @@ async function page(session: api.Session | null) {
     try {
       await api.clearToken(session);
       tokenState = await api.tokenStatus(session);
-      paintGithub('Disconnected — the dial shows public data only.', 'info');
+      paintGithub(
+        tokenState.shared
+          ? 'Disconnected — the dial shows public data only.'
+          : 'Disconnected. Connect GitHub again for the dial to keep updating.',
+        'info',
+      );
       payload = await api.getPreview(session).catch(() => payload);
       preview.draw();
     } catch (err) {

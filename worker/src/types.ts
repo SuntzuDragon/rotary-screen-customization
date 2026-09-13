@@ -2,7 +2,12 @@ export interface Env {
   DEVICES: KVNamespace;
   DB: D1Database;
   ASSETS: Fetcher;
-  GH_TOKEN: string;
+  /**
+   * Shared token for dials with no GitHub connection of their own. Optional:
+   * without it a dial has to Connect GitHub (or paste a token) before it can
+   * fetch anything, and the site says so instead of promising public data.
+   */
+  GH_TOKEN?: string;
   ENC_KEY: string;
   DEFAULT_LOGIN: string;
   /**

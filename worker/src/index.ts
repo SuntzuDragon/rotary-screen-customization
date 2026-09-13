@@ -103,9 +103,9 @@ export async function refreshLogin(
 async function tokenFor(
   env: Env,
   id: string,
-): Promise<{ token: string; personal: boolean; broken: boolean }> {
+): Promise<{ token: string | null; personal: boolean; broken: boolean }> {
   const row = await getGithubAuth(env, id);
-  if (!row) return { token: env.GH_TOKEN, personal: false, broken: false };
+  if (!row) return { token: env.GH_TOKEN ?? null, personal: false, broken: false };
 
   const token =
     row.kind === 'app'
@@ -114,7 +114,7 @@ async function tokenFor(
   if (token) return { token, personal: true, broken: false };
 
   console.error(`stored ${row.kind} token for ${id} is unusable`);
-  return { token: env.GH_TOKEN, personal: false, broken: true };
+  return { token: env.GH_TOKEN ?? null, personal: false, broken: true };
 }
 
 /** Renew this long before expiry, so whoever loses the lease still holds a valid token. */
@@ -467,7 +467,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
     // Warm the cache immediately so the first poll has data to show.
     const { token, personal } = await tokenFor(env, id);
-    if (!(await getSnapshot(env, snapshotScope(config.login, personal ? id : null)))) {
+    if (token && !(await getSnapshot(env, snapshotScope(config.login, personal ? id : null)))) {
       ctx.waitUntil(
         refreshLogin(env, config.login, token, personal ? id : null).catch(() => {}),
       );
@@ -625,8 +625,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       // repos as soon as the push returns.
       if (next.login.toLowerCase() !== current.login.toLowerCase()) {
         const { token, personal } = await tokenFor(env, id);
+        // With no GitHub access at all there is nothing to check the name
+        // against; it is saved and resolves once the dial is connected.
         try {
-          await refreshLogin(env, next.login, token, personal ? id : null);
+          if (token) await refreshLogin(env, next.login, token, personal ? id : null);
         } catch (err) {
           if (err instanceof GitHubError && err.status === 404) {
             return fail(400, `There is no GitHub user called ${next.login}.`);
@@ -670,6 +672,8 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
           login: row?.login ?? null,
           // What the page may offer: the button only appears once the app exists.
           app: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+          // Whether a dial with no connection still gets public data from a shared token.
+          shared: Boolean(env.GH_TOKEN),
           installUrl: env.GITHUB_APP_SLUG
             ? `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`
             : null,
@@ -708,6 +712,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (resource === 'refresh' && req.method === 'POST') {
     const config = await ensureConfig(env, id);
     const { token, personal } = await tokenFor(env, id);
+    if (!token) return fail(409, 'This dial has no GitHub access yet — connect GitHub first.');
     const scope = snapshotScope(config.login, personal ? id : null);
 
     // Throttled against the snapshot's own age. Unthrottled, a loop here spends
@@ -777,6 +782,8 @@ export default {
           const config = await getConfig(env, id);
           if (!config) continue;
           const { token, personal } = await tokenFor(env, id);
+          // No connection of its own and no shared token: nothing to fetch with.
+          if (!token) continue;
           const device = personal ? id : null;
           const key = snapshotScope(config.login, device);
           if (!jobs.has(key)) jobs.set(key, { login: config.login, token, device });

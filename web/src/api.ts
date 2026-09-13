@@ -147,6 +147,8 @@ export interface TokenState {
   login: string | null;
   /** Whether Connect GitHub is available on this server. */
   app: boolean;
+  /** Whether a dial with no connection still gets public data from a shared token. */
+  shared: boolean;
   /** Where to choose which private repos the app can see. */
   installUrl: string | null;
 }
