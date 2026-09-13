@@ -145,6 +145,9 @@ void buildSummary() {
   lv_label_set_text(name, gStats.name[0] ? gStats.name : gStats.login);
   lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
   lv_obj_set_width(name, 210);
+  // One line tall, so a long display name ends in "..." instead of wrapping
+  // down into the contributions number (see the activity rows for why).
+  lv_obj_set_height(name, lv_font_get_line_height(&lv_font_montserrat_16));
   lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(name, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(name, lv_color_hex(0xD8DEE5), 0);
@@ -231,6 +234,9 @@ void buildRepo(uint8_t idx) {
   lv_label_set_text(title, r.name);
   lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_set_width(title, LV_MIN(textSize.x + 2, kTitleMax));
+  // One line tall: org repos are named org/repo now, and a title past kTitleMax
+  // would otherwise wrap down onto the stats below.
+  lv_obj_set_height(title, lv_font_get_line_height(&lv_font_montserrat_20));
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
@@ -278,6 +284,10 @@ void buildActivity() {
     lv_label_set_text(n, slash ? slash + 1 : e.repo);
     lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
     lv_obj_set_width(n, 110);
+    // LONG_DOT only truncates once the height is fixed too. Left to fit its text,
+    // a long repo name wrapped onto a second line and ran over the time stamp
+    // drawn beneath it; held to one line, it ends in "..." instead.
+    lv_obj_set_height(n, lv_font_get_line_height(&lv_font_montserrat_14));
     lv_obj_set_style_text_font(n, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(n, lv_color_hex(0x9AA5B1), 0);
     lv_obj_align(n, LV_ALIGN_CENTER, 34, y);
