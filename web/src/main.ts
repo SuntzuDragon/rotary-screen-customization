@@ -1097,12 +1097,12 @@ async function page(session: api.Session | null) {
   let allRepos: { name: string; stars: number }[] = [];
 
   /*
-   * Chosen repos stay pinned; only the rest scroll and filter.
+   * Chosen repos stay pinned above for ordering; the list below holds every repo,
+   * chosen ones included, for searching and ticking.
    *
-   * Reordering by drag only makes sense between cards you can see, so search
-   * narrows the repos you could *add* and never hides a chosen one. The search
-   * box sits outside everything renderRepos rebuilds -- rebuilt, it would lose
-   * focus on every keystroke.
+   * Reordering by drag only happens between the pinned cards, never inside the
+   * scrolling, filtered list. The search box sits outside everything
+   * renderRepos rebuilds -- rebuilt, it would lose focus on every keystroke.
    */
   const SEARCH_AFTER = 8;
   const pickedList = el('div', {});
@@ -1110,7 +1110,7 @@ async function page(session: api.Session | null) {
   const repoSearch = el('input', {
     class: 'input repo-search',
     type: 'search',
-    placeholder: 'Search to add a repo',
+    placeholder: 'Search repos',
     autocomplete: 'off',
     spellcheck: 'false',
   }) as HTMLInputElement;
@@ -1166,7 +1166,7 @@ async function page(session: api.Session | null) {
       ),
     );
 
-    const row = (name: string, stars: number, isPicked: boolean) => {
+    const row = (name: string, stars: number, isPicked: boolean, where: 'pinned' | 'list') => {
       const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
       cb.checked = isPicked;
       cb.disabled = auto || (!isPicked && picked.length >= MAX_DEVICE_REPOS);
@@ -1175,7 +1175,12 @@ async function page(session: api.Session | null) {
 
       const r = el(
         'div',
-        { class: `repo-row ${isPicked ? 'pick' : 'unpick'}` },
+        {
+          class:
+            where === 'pinned'
+              ? 'repo-row pick'
+              : `repo-row listed ${isPicked ? 'listed-on' : 'unpick'}`,
+        },
         el(
           'label',
           { class: 'repo-main' },
@@ -1185,10 +1190,10 @@ async function page(session: api.Session | null) {
         ),
       );
 
-      // Only chosen rows drag, and only when the order is ours to set: there is
-      // nothing to order in automatic mode, and nothing to order among the ones
-      // that are not shown.
-      if (isPicked && !auto && picked.length > 1) {
+      // Only the pinned cards drag, and only when the order is ours to set: there
+      // is nothing to order in automatic mode, and dragging inside the filtered,
+      // scrolling list below would be guesswork.
+      if (where === 'pinned' && !auto && picked.length > 1) {
         const grip = el('span', { class: 'grip', title: 'Drag to reorder' }, '⠿');
         r.append(grip);
         r.draggable = true;
@@ -1237,29 +1242,33 @@ async function page(session: api.Session | null) {
     pickedList.replaceChildren(
       ...picked.map((n) => {
         const meta = allRepos.find((r) => r.name === n);
-        return row(n, meta?.stars ?? 0, true);
+        return row(n, meta?.stars ?? 0, true, 'pinned');
       }),
     );
 
     const query = repoSearch.value.trim();
     const q = query.toLowerCase();
-    const shown = q ? rest.filter((r) => r.name.toLowerCase().includes(q)) : rest;
+    // Every repo, chosen ones included, so search finds any of them; ticking and
+    // unticking work here just as they do on the pinned cards.
+    const shown = q ? allRepos.filter((r) => r.name.toLowerCase().includes(q)) : allRepos;
 
-    restDivider.hidden = rest.length === 0;
-    restList.hidden = rest.length === 0;
+    // Hidden only when nothing is left to add and no search is running. An
+    // account whose repos all fit on the dial would otherwise list them twice.
+    const listVisible = rest.length > 0 || Boolean(query);
+    restDivider.hidden = !listVisible;
+    restList.hidden = !listVisible;
     // Offered once the list is long enough to need it -- and kept while a search
     // is in progress, so the box does not vanish from under the cursor.
-    repoSearch.hidden = rest.length === 0 || (rest.length <= SEARCH_AFTER && !query);
+    repoSearch.hidden = !listVisible || (allRepos.length <= SEARCH_AFTER && !query);
     restDivider.textContent =
-      `${auto ? 'below the cut' : 'not shown'} ` +
-      `(${q ? `${shown.length} of ${rest.length}` : rest.length})`;
+      `all repos (${q ? `${shown.length} of ${allRepos.length}` : allRepos.length})`;
 
     // Ticking a repo halfway down rebuilds this list; keep the scroll position
     // instead of jumping back to the top between additions.
     const top = restList.scrollTop;
     restList.replaceChildren(
-      ...shown.map((r) => row(r.name, r.stars, false)),
-      ...(q && shown.length === 0 ? [note(`No other repos match “${query}”.`)] : []),
+      ...shown.map((r) => row(r.name, r.stars, picked.includes(r.name), 'list')),
+      ...(q && shown.length === 0 ? [note(`No repos match “${query}”.`)] : []),
     );
     restList.scrollTop = top;
   }

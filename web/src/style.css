@@ -151,6 +151,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .repo-row.pick:hover { border-color: #3a444f; }
 .repo-row.unpick { opacity: 0.72; }
+
+/* The full list below the pinned cards: plain rows, with the ones already on
+   the dial marked by an accent edge, so they read as chosen without looking
+   like cards you could pick up. */
+.repo-row.listed { background: transparent; border-color: transparent; }
+.repo-row.listed-on { box-shadow: inset 2px 0 0 var(--accent); }
 .repo-main {
   display: flex; align-items: center; gap: 10px;
   flex: 1; min-width: 0; cursor: pointer;
