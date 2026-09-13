@@ -93,15 +93,19 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
 .split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
 
-/* Left column: preview, device bar, Push. Sticky within its grid cell -- which is
-   as tall as the settings beside it on a wide screen, and only as tall as itself
-   once the columns stack, so it never covers anything there. The height cap
-   keeps Push reachable on a short window. */
-.side {
-  position: sticky; top: 20px;
-  display: flex; flex-direction: column; gap: 14px;
-  max-height: calc(100vh - 40px); overflow-y: auto;
-  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+/* Left column: preview, device bar, Push. */
+.side { display: flex; flex-direction: column; gap: 14px; }
+
+/* Side by side only: stick while the settings scroll, capped to the window so
+   Push stays reachable on a short screen. Stacked on a phone it must do neither:
+   capped there, an iPhone SE turned the column into a scroll box inside the page,
+   with Push hanging over the settings below. */
+@media (min-width: 761px) {
+  .side {
+    position: sticky; top: 20px;
+    max-height: calc(100vh - 40px); overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  }
 }
 
 .muted { color: var(--muted); font-size: 13px; }
