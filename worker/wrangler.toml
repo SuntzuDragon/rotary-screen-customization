@@ -40,7 +40,13 @@ crons = ["*/5 * * * *"]
 
 [vars]
 DEFAULT_LOGIN = "PlasticRocket"
+# The GitHub App behind "Connect GitHub" (github.com/apps/rotary-stats). Neither
+# value is secret. The button stays hidden until GITHUB_CLIENT_SECRET is set too.
+GITHUB_CLIENT_ID = "Iv23lixF7rK37OkkQQXp"
+GITHUB_APP_SLUG = "rotary-stats"
 
 # Secrets (set with `wrangler secret put`):
-#   GH_TOKEN  - fine-grained read-only public-repo PAT (the default token)
-#   ENC_KEY   - base64 32-byte AES-GCM key for encrypting user-supplied PATs
+#   GITHUB_CLIENT_SECRET - the GitHub App's client secret
+#   ENC_KEY   - base64 32-byte AES-GCM key for encrypting stored GitHub tokens
+#   GH_TOKEN  - optional shared token for dials with no connection of their own;
+#               fine-grained, Public Repositories read-only. Being phased out.
