@@ -169,6 +169,11 @@ async function payloadFor(env: Env, id: string) {
   const { token, personal } = await tokenFor(env, id);
   // No connection of its own and no shared token: nothing will ever fill the cache.
   const hasAccess = Boolean(token);
+  // Without access, never serve a cached snapshot. One left in the shared scope
+  // from when a shared token existed can no longer be refreshed, so serving it
+  // shows frozen stats that look live -- and hides the "Connect GitHub" screen
+  // the dial should be showing instead.
+  if (!hasAccess) return { config, payload: null, hasAccess };
   const scope = snapshotScope(config.login, personal ? id : null);
   const snap = await getSnapshot(env, scope);
   if (!snap) return { config, payload: null, hasAccess };
