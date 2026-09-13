@@ -1058,6 +1058,7 @@ async function page(session: api.Session | null) {
     payload = (await api.getPreview(session).catch(() => null)) ?? payload;
     refreshDirty();
     notifyBar();
+    paintGithub();
 
     const instant = await nudgeOverUsb();
     paintLogin(
@@ -1302,10 +1303,16 @@ async function page(session: api.Session | null) {
     const t = tokenState;
     const connected = Boolean(t?.present && !t.broken);
     const viaApp = t?.kind === 'app';
+    // Connecting one account to a dial that shows another is normal -- you set
+    // up a gift with your own access -- but then only the shown account's
+    // public repos are reachable, and "your private repos" means nothing here.
+    const otherAccount = Boolean(
+      t?.login && t.login.toLowerCase() !== config.login.toLowerCase(),
+    );
     ghConnect.hidden = !t?.app || (connected && viaApp);
     ghConnect.textContent = connected ? 'Connect GitHub instead' : 'Connect GitHub';
     ghDisconnect.hidden = !t?.present;
-    ghInstallRow.hidden = !(viaApp && connected && t?.installUrl);
+    ghInstallRow.hidden = !(viaApp && connected && t?.installUrl && !otherAccount);
     if (t?.installUrl) ghInstall.setAttribute('href', t.installUrl);
 
     ghStatus.replaceChildren(
@@ -1322,11 +1329,14 @@ async function page(session: api.Session | null) {
                 ? t.shared
                   ? 'Not connected — the dial shows public data only.'
                   : 'Not connected — connect GitHub so the dial can fetch its stats.'
-                : viaApp
-                  ? `Connected as @${t.login}. The dial sees your public repos, plus any ` +
-                    'private ones you choose.'
-                  : `Using your personal token${t.login ? ` for @${t.login}` : ''} — ` +
-                    'private repos included.'),
+                : otherAccount
+                  ? `Connected as @${t.login}. The dial shows @${config.login}, so it sees ` +
+                    `${config.login}'s public repos using your access.`
+                  : viaApp
+                    ? `Connected as @${t.login}. The dial sees your public repos, plus any ` +
+                      'private ones you choose.'
+                    : `Using your personal token${t.login ? ` for @${t.login}` : ''} — ` +
+                      'private repos included.'),
         tone ?? (t?.broken ? 'err' : t?.present ? 'ok' : 'info'),
       ),
     );

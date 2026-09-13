@@ -243,12 +243,7 @@ function readCookie(req: Request, name: string): string | null {
  * have already approved, one click on a crafted link would put the victim's
  * token on the attacker's dial.
  */
-async function githubCallback(
-  req: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL,
-): Promise<Response> {
+async function githubCallback(req: Request, env: Env, url: URL): Promise<Response> {
   const back = (outcome: string) =>
     new Response(null, {
       status: 302,
@@ -287,10 +282,13 @@ async function githubCallback(
       refreshExpiresAt: now + pair.refreshExpiresIn,
       login,
     });
-    // Re-fetch with the new access straight away, as the pasted-token path does.
+    // Fetch with the new access *before* sending the browser back. Connecting
+    // moves the dial into its own private cache scope, which is empty until
+    // this runs. Done in the background, the page arrived first, found
+    // nothing, and showed "Could not load repos" until a manual reload.
     const config = await ensureConfig(env, flow.deviceId);
-    ctx.waitUntil(
-      refreshLogin(env, config.login, pair.accessToken, flow.deviceId).catch(() => {}),
+    await refreshLogin(env, config.login, pair.accessToken, flow.deviceId).catch((err) =>
+      console.error('first fetch after sign-in failed', err),
     );
     return back('connected');
   } catch (err) {
@@ -321,7 +319,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
   if (resource === 'health') return json({ ok: true, rate: lastRateRemaining });
 
   if (resource === 'github' && id === 'callback' && !sub && req.method === 'GET') {
-    return githubCallback(req, env, ctx, url);
+    return githubCallback(req, env, url);
   }
 
   /*
@@ -689,9 +687,13 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       if (!login) return fail(400, 'GitHub rejected that token');
 
       await putUserToken(env, id, await encryptSecret(env.ENC_KEY, body.token), login);
-      // Re-fetch straight away so the display reflects the new access.
+      // Fetch before answering, for the same reason as the app sign-in: the new
+      // token moves this dial to its own cache scope, which is empty until then,
+      // and the page asks for a preview the moment this returns.
       const config = await ensureConfig(env, id);
-      ctx.waitUntil(refreshLogin(env, config.login, body.token, id).catch(() => {}));
+      await refreshLogin(env, config.login, body.token, id).catch((err) =>
+        console.error('first fetch after token save failed', err),
+      );
       return json({ ok: true, login }, { headers: { 'access-control-allow-origin': '*' } });
     }
     if (req.method === 'DELETE') {
