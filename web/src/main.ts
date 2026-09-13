@@ -1054,6 +1054,7 @@ async function page(session: api.Session | null) {
       .getRepos(session)
       .then((r) => r.repos.map((x) => ({ name: x.name, stars: x.stars })))
       .catch(() => []);
+    repoSearch.value = '';
     renderRepos();
     payload = (await api.getPreview(session).catch(() => null)) ?? payload;
     refreshDirty();
@@ -1090,8 +1091,40 @@ async function page(session: api.Session | null) {
     el('span', {}, `Keep the top ${MAX_DEVICE_REPOS} automatically`),
   );
   const repoCount = el('div', { class: 'status' });
+  // Messages only: loading, nothing to show, errors. The list itself lives in
+  // repoBody, so showing a message can never wipe out the elements below it.
   const repoList = el('div', {}, note('Loading repos…'));
   let allRepos: { name: string; stars: number }[] = [];
+
+  /*
+   * Chosen repos stay pinned; only the rest scroll and filter.
+   *
+   * Reordering by drag only makes sense between cards you can see, so search
+   * narrows the repos you could *add* and never hides a chosen one. The search
+   * box sits outside everything renderRepos rebuilds -- rebuilt, it would lose
+   * focus on every keystroke.
+   */
+  const SEARCH_AFTER = 8;
+  const pickedList = el('div', {});
+  const restDivider = el('div', { class: 'rows-divider' });
+  const repoSearch = el('input', {
+    class: 'input repo-search',
+    type: 'search',
+    placeholder: 'Search to add a repo',
+    autocomplete: 'off',
+    spellcheck: 'false',
+  }) as HTMLInputElement;
+  const restList = el('div', { class: 'repo-scroll' });
+  const repoBody = el('div', {}, pickedList, restDivider, repoSearch, restList);
+  repoBody.hidden = true;
+
+  repoSearch.oninput = () => renderRepos();
+  repoSearch.onkeydown = (ev) => {
+    if (ev.key === 'Escape' && repoSearch.value) {
+      repoSearch.value = '';
+      renderRepos();
+    }
+  };
 
   /** Names in display order. Derived from the top of the list while automatic. */
   const chosen = (): string[] =>
@@ -1112,8 +1145,11 @@ async function page(session: api.Session | null) {
     if (allRepos.length === 0) {
       repoCount.replaceChildren();
       repoList.replaceChildren(note('This account has no repos to show.'));
+      repoBody.hidden = true;
       return;
     }
+    repoList.replaceChildren();
+    repoBody.hidden = false;
 
     const auto = draft.repos === null;
     const picked = chosen();
@@ -1193,24 +1229,46 @@ async function page(session: api.Session | null) {
     };
 
     const clearMarkers = () => {
-      for (const n of repoList.querySelectorAll('.drop-above, .drop-below')) {
+      for (const n of pickedList.querySelectorAll('.drop-above, .drop-below')) {
         n.classList.remove('drop-above', 'drop-below');
       }
     };
 
-    repoList.replaceChildren(
+    pickedList.replaceChildren(
       ...picked.map((n) => {
         const meta = allRepos.find((r) => r.name === n);
         return row(n, meta?.stars ?? 0, true);
       }),
-      ...(rest.length
-        ? [el('div', { class: 'rows-divider' }, auto ? 'below the cut' : `not shown (${rest.length})`)]
-        : []),
-      ...rest.map((r) => row(r.name, r.stars, false)),
     );
+
+    const query = repoSearch.value.trim();
+    const q = query.toLowerCase();
+    const shown = q ? rest.filter((r) => r.name.toLowerCase().includes(q)) : rest;
+
+    restDivider.hidden = rest.length === 0;
+    restList.hidden = rest.length === 0;
+    // Offered once the list is long enough to need it -- and kept while a search
+    // is in progress, so the box does not vanish from under the cursor.
+    repoSearch.hidden = rest.length === 0 || (rest.length <= SEARCH_AFTER && !query);
+    restDivider.textContent =
+      `${auto ? 'below the cut' : 'not shown'} ` +
+      `(${q ? `${shown.length} of ${rest.length}` : rest.length})`;
+
+    // Ticking a repo halfway down rebuilds this list; keep the scroll position
+    // instead of jumping back to the top between additions.
+    const top = restList.scrollTop;
+    restList.replaceChildren(
+      ...shown.map((r) => row(r.name, r.stars, false)),
+      ...(q && shown.length === 0 ? [note(`No other repos match “${query}”.`)] : []),
+    );
+    restList.scrollTop = top;
   }
 
-  if (!session) repoList.replaceChildren(note('Link a dial to choose which repos it shows.'));
+  const repoMessage = (msg: string, kind?: 'err') => {
+    repoBody.hidden = true;
+    repoList.replaceChildren(note(msg, kind));
+  };
+  if (!session) repoMessage('Link a dial to choose which repos it shows.');
   else
     api
       .getRepos(session)
@@ -1218,7 +1276,7 @@ async function page(session: api.Session | null) {
         allRepos = repos.map((r) => ({ name: r.name, stars: r.stars }));
         renderRepos();
       })
-      .catch(() => repoList.replaceChildren(note('Could not load repos.', 'err')));
+      .catch(() => repoMessage('Could not load repos.', 'err'));
 
   const bright = el('input', {
     type: 'range',
@@ -1522,7 +1580,7 @@ async function page(session: api.Session | null) {
       loginBtn,
       loginStatus,
     ),
-    el('section', { class: 'card' }, el('h2', {}, 'Repos'), autoRow, repoCount, repoList),
+    el('section', { class: 'card' }, el('h2', {}, 'Repos'), autoRow, repoCount, repoList, repoBody),
     el(
       'section',
       { class: 'card' },

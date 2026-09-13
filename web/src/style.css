@@ -184,6 +184,20 @@ button:disabled { opacity: 0.5; cursor: default; }
   border-top: 1px solid var(--line);
 }
 
+/* Search narrows the list below it: the repos you could add. */
+.repo-search { margin: 2px 0 8px; }
+
+/* Only that list scrolls. The chosen cards stay pinned above it, so reordering
+   by drag never happens inside a moving list. */
+.repo-scroll {
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
 .status { min-height: 20px; }
 .note { font-size: 13px; margin: 10px 0 0; }
 .note-err { color: #ff8a6a; }
