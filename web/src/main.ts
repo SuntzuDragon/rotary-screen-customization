@@ -675,11 +675,6 @@ function deviceBar(ctx: PageContext) {
     ),
     status,
   );
-  // The bar's height varies with its message, and the sticky push card has to
-  // sit just below it rather than on top of it.
-  new ResizeObserver(() =>
-    document.documentElement.style.setProperty('--devbar-h', `${node.offsetHeight}px`),
-  ).observe(node);
   return node;
 }
 
@@ -879,6 +874,8 @@ async function page(session: api.Session | null) {
 
   // Driven by refreshDirty, so declared up here with the others it drives.
   const pushCard = el('section', { class: 'card push-card' }, pushBtn, pushNote, pushHint);
+  // Nothing to push until a dial is linked.
+  pushCard.hidden = !session;
 
   const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
 
@@ -1572,7 +1569,6 @@ async function page(session: api.Session | null) {
   const settings = el(
     'fieldset',
     { class: 'fs stack' },
-    pushCard,
     el('section', { class: 'card' }, el('h2', {}, 'Screens'), deckList),
     el(
       'section',
@@ -1651,8 +1647,11 @@ async function page(session: api.Session | null) {
     el(
       'div',
       { class: 'split' },
-      preview.node,
-      el('div', { class: 'stack' }, deviceBar(pageCtx), settings, alwaysOn, maintenance, buildFooter()),
+      // The left column holds what you watch and act on -- the preview, which
+      // dial this is, and Push -- and stays in view while the settings scroll.
+      // Stuck to the top of the settings column instead, they covered it.
+      el('div', { class: 'side' }, preview.node, deviceBar(pageCtx), pushCard),
+      el('div', { class: 'stack' }, settings, alwaysOn, maintenance, buildFooter()),
     ),
   );
   preview.draw();

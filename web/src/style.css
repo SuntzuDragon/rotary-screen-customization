@@ -58,12 +58,14 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
 .fs[disabled] .card { background: #101318; }
 
 /* device bar -- NOT .bar, which is already the flashing progress track */
-.devbar { position: sticky; top: 0; z-index: 5; }
-.devbar-row { display: flex; align-items: center; gap: 12px; }
+.devbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .devbar-text { flex: 1; min-width: 0; }
 .devbar-title { font-weight: 600; font-size: 14px; }
 .devbar-detail { color: var(--muted); font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
-.devbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+/* The bar lives in the 300px left column: the text keeps a sensible width, and
+   the buttons drop onto their own line rather than squeezing it to nothing. */
+.devbar-text { flex-basis: 140px; }
+.devbar-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .devbar-actions button { padding: 8px 12px; font-size: 13px; }
 
 .dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; }
@@ -77,12 +79,23 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
 .split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
 
+/* Left column: preview, device bar, Push. Sticky within its grid cell -- which is
+   as tall as the settings beside it on a wide screen, and only as tall as itself
+   once the columns stack, so it never covers anything there. The height cap
+   keeps Push reachable on a short window. */
+.side {
+  position: sticky; top: 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  max-height: calc(100vh - 40px); overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+
 .muted { color: var(--muted); font-size: 13px; }
 .center { text-align: center; }
 
 /* The panel is 240x240. Showing it at 2x with nearest-neighbour keeps the
    preview honest about how chunky text actually looks on the hardware. */
-.preview { position: sticky; top: 20px; text-align: center; }
+.preview { text-align: center; }
 .screen {
   width: 280px; height: 280px;
   border-radius: 50%;
@@ -121,19 +134,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 .tag { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
-/* While there is something to push, keep the button in view. The settings it
-   applies to run the length of the page, and "do I have to press push?" was a
-   real question when the button had scrolled away. Sticks inside the settings
-   fieldset only, so it leaves once you are down among Wi-Fi and Firmware. */
-.push-card.dirty {
-  position: sticky;
-  top: calc(var(--devbar-h, 64px) + 10px);
-  z-index: 4;
-  border-color: var(--accent);
-  /* The first shadow is a solid band in the page colour filling the gap to the
-     bar above -- without it, the text scrolling past shows through that gap. */
-  box-shadow: 0 -12px 0 0 var(--bg), 0 12px 28px rgba(0, 0, 0, 0.5);
-}
+/* Unsaved changes: the accent edge is the cue to press Push. */
+.push-card.dirty { border-color: var(--accent); }
 
 /* repo ordering
    A chosen repo is a card you can pick up; one that is not shown is a plain
