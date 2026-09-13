@@ -220,10 +220,11 @@ internally, so all 192 still compile) but shrank the binary by **63KB**.
 - `last_seen` is written at most every 15 minutes, so a device that looks stale
   by that column may be perfectly healthy — `device_logs` ships far more often
   and is the better liveness check.
-- Secrets: `GH_TOKEN` (fine-grained, **public-repo read only** — not a `gh` CLI
-  `gho_` token, which carries `repo` and would pull private repositories into
-  the shared snapshot cache), `ENC_KEY` (base64 32 bytes, AES-GCM for user
-  PATs). `ENC_KEY` was rotated on 2026-09-10; rotating it makes every stored
+- Secrets: `GITHUB_CLIENT_SECRET` (the GitHub App's) and `ENC_KEY` (base64 32
+  bytes, AES-GCM for stored GitHub tokens). `GITHUB_CLIENT_ID` and
+  `GITHUB_APP_SLUG` are plain vars in `wrangler.toml`. There is no `GH_TOKEN`;
+  if one is ever added back it must be fine-grained, public-repo read-only —
+  never a `gh` CLI `gho_` token, which carries `repo`. `ENC_KEY` was rotated on 2026-09-10; rotating it makes every stored
   user PAT undecryptable, which `GET /api/token` now reports as `broken`. GitHub Actions needs `CLOUDFLARE_API_TOKEN`
   with **Workers + KV + D1 Edit** — D1 was missing initially and failed the
   publish step.
@@ -317,10 +318,43 @@ refuses a non-expiring token rather than store one it cannot renew.
 so it leaves the person's GitHub Applications list — best effort; the local copy
 is deleted either way.
 
-**Still to do.** `GH_TOKEN` remains as the fallback for dials with no connection
-of their own. Removing it is a separate step, only after the real dial is
-connected: at that moment every unconnected dial stops updating. Not yet
-exercised end to end — that needs the app registered.
+**`GH_TOKEN` is gone (2026-09-12).** Every dial fetches with its own
+connection. A dial with none gets HTTP **428** from its poll, and v0.3.1
+firmware shows *Connect GitHub — at hdog.imcb.dev* instead of sitting on
+"Registering". Two things had to change for that to be true:
+
+- The worker must **never serve a cached snapshot to a dial with no access.** The
+  shared-scope snapshots written while the shared token existed can no longer be
+  refreshed, so serving them showed frozen stats that looked live and hid the
+  Connect GitHub screen. A freshly registered dial for PlasticRocket got exactly
+  that — HTTP 200 with day-old data — until this was fixed and those rows were
+  deleted.
+- Everything that fetched with the shared token (cron, registration warm-up,
+  username check, manual refresh) now skips when there is no token at all.
+
+Exercised end to end with the registered app `rotary-stats`.
+
+**Org repos come from installations, not membership.** `ownerAffiliations:
+ORGANIZATION_MEMBER` would return every public repo of every org the account
+belongs to, with nobody granting anything, and a large open-source org's repos
+would push the person's own out of the top eight. Instead the worker lists the
+app's installations (`/user/installations`), takes the repos each organization
+granted, and fetches their stats through the same GraphQL fragment as owned
+repos, capped at 20. They are named `org/repo`, so they cannot collide with an
+owned repo of the same name. This only runs for an app sign-in (`ghu_` tokens —
+a PAT cannot list installations) viewing its own account: on a dial showing
+someone else, they would be the connected person's orgs. No opt-in setting is
+needed, because the grant is the opt-in.
+
+**One connection per dial — the newest wins.** A pasted PAT and an app sign-in
+are not combined. The app already reaches everything a PAT can, read-only and
+self-renewing; combining would mean two credentials to renew and two sources for
+the same repo's stats. Pasting a PAT over an app sign-in also withdraws that
+authorization on GitHub, as Disconnect does.
+
+**Known limit:** the owned-repo query takes the first 20 by stars. An account
+with more than that — including private repos made visible by installing the
+app — loses the rest from the picker, arbitrarily among ties.
 
 ### The poll interval is the scaling lever
 

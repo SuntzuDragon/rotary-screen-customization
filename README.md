@@ -41,8 +41,10 @@ nothing typed twice.
   minute.
 - **Switch account:** type any GitHub username. Names GitHub does not know are
   refused before anything is saved.
-- An optional personal GitHub token for private repos — encrypted at rest and
-  never sent to the device.
+- **Connect GitHub:** one click, read-only, and it renews itself. It covers the
+  account's own repos, any private ones it chooses, and any repos an
+  organization grants to the app — shown as `org/repo`. A pasted personal access
+  token still works as the alternative, for the account's own repos.
 - Wi-Fi setup and network changes, over the cable only: the password never
   crosses the internet.
 - Firmware flashing from the browser — any published version, with progress and
@@ -93,15 +95,32 @@ npm install
 npx wrangler d1 create rotary-stats           # put the id in wrangler.toml
 npx wrangler kv namespace create DEVICES      # firmware images; put the id in wrangler.toml
 for f in migrations/*.sql; do npx wrangler d1 execute rotary-stats --remote --file "$f"; done
-npx wrangler secret put GH_TOKEN              # see below
+npx wrangler secret put GITHUB_CLIENT_SECRET  # see below
 npx wrangler secret put ENC_KEY               # openssl rand -base64 32
 cd ../web && npm install && npm run build     # the Worker serves web/dist
 cd ../worker && npx wrangler deploy
 ```
 
-`GH_TOKEN` must be a **fine-grained personal access token with Public
-Repositories (read-only)** and no account permissions. Not a `gh` CLI token:
-those carry `repo`, and the shared cache would pick up private repositories.
+**The GitHub App.** Register one under GitHub → Settings → Developer settings →
+GitHub Apps:
+
+- **Callback URL:** `https://<host>/api/github/callback`, exactly.
+- **Expire user authorization tokens:** on — the Worker renews them.
+- **Repository permissions,** all read-only: Metadata, Contents, Issues, Pull
+  requests. Nothing under organization or account permissions.
+- **Webhook:** off. **Installable by:** any account.
+- Generate a private key — GitHub requires one before the app can be installed,
+  though the Worker never uses it.
+
+Put the Client ID and the app's slug in `wrangler.toml` as `GITHUB_CLIENT_ID` and
+`GITHUB_APP_SLUG`, and the client secret in `GITHUB_CLIENT_SECRET`. Until all
+three are set, the Connect GitHub button is not offered.
+
+There is **no shared GitHub token.** Every dial fetches with its own connection,
+and a dial with none shows *Connect GitHub* until someone connects one. An
+optional `GH_TOKEN` secret restores a shared fallback for public data — if you
+add one, make it a fine-grained token with Public Repositories (read-only), not a
+`gh` CLI token.
 
 `DEFAULT_LOGIN` in `wrangler.toml` is the account a newly set-up dial starts on.
 The Worker is bound to `hdog.imcb.dev`; wrangler creates the DNS record on deploy
@@ -147,6 +166,8 @@ for working on the dial's UI without a network round trip.
 4. In the Wi-Fi card, pick a network from the list the **dial** scanned and enter
    the password.
 5. The dial joins, links itself to the page, and the settings unlock.
+6. **Connect GitHub** in the Your GitHub card. Until then the dial shows
+   *Connect GitHub*.
 
 The browser remembers the link after that, so later changes need no cable. The
 dial's settings link (`…/#d=<id>&k=<secret>`) works from any other device.
@@ -159,8 +180,9 @@ cd web    && npm run dev                                   # site with HMR, /api
 cd web    && API_ORIGIN=https://hdog.imcb.dev npm run dev  # site against the live API
 ```
 
-Put a `GH_TOKEN` (same rules as above) and an `ENC_KEY` in `worker/.dev.vars`,
-which is gitignored.
+Put an `ENC_KEY` and a `GITHUB_CLIENT_SECRET` in `worker/.dev.vars`, which is
+gitignored. Connect GitHub only completes against the origin registered as the
+app's callback, so locally, paste a personal access token instead.
 
 ## Gotchas worth knowing
 
