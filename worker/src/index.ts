@@ -166,12 +166,14 @@ async function appAccessToken(env: Env, id: string, row: GithubAuthRow): Promise
 
 async function payloadFor(env: Env, id: string) {
   const config = await ensureConfig(env, id);
-  const { personal } = await tokenFor(env, id);
+  const { token, personal } = await tokenFor(env, id);
+  // No connection of its own and no shared token: nothing will ever fill the cache.
+  const hasAccess = Boolean(token);
   const scope = snapshotScope(config.login, personal ? id : null);
   const snap = await getSnapshot(env, scope);
-  if (!snap) return { config, payload: null };
+  if (!snap) return { config, payload: null, hasAccess };
   const events = await getEvents(env, scope);
-  return { config, payload: buildPayload(config, snap, events) };
+  return { config, payload: buildPayload(config, snap, events), hasAccess };
 }
 
 /* ---------- config validation ---------- */
@@ -542,7 +544,12 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       })(),
     );
 
-    const { payload } = await payloadFor(env, id);
+    const { payload, hasAccess } = await payloadFor(env, id);
+    // 428 tells the dial *why* it has nothing to show, so it can say "Connect
+    // GitHub" instead of sitting on "Registering" -- which is where a newly set
+    // up dial stayed once there was no shared token to fall back on. Older
+    // firmware treats it as any other failed poll.
+    if (!payload && !hasAccess) return fail(428, 'connect GitHub on the settings page');
     if (!payload) return fail(503, 'no data yet');
 
     const body = JSON.stringify(payload);

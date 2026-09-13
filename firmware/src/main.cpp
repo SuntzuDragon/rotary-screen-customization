@@ -151,7 +151,7 @@ void initLvgl() {
  * Core 1 now only ever runs LVGL, Improv and the encoder, so the device stays
  * responsive no matter what the network is doing.
  */
-enum class NetPhase : uint8_t { Idle, Connecting, Clock, Registering, Ready, Failed };
+enum class NetPhase : uint8_t { Idle, Connecting, Clock, Registering, Ready, Failed, NeedsGithub };
 
 SemaphoreHandle_t gStateMutex = nullptr;
 
@@ -242,8 +242,11 @@ bool pollOnce() {
     // flash about as often as the stats actually move.
     settings::saveBlob(kStatsKey, &fresh, sizeof(fresh));
   }
-  if (r != api::Result::Failed) setPhase(NetPhase::Ready);
-  return r != api::Result::Failed;
+  // A dial nobody has connected to GitHub gets its own screen, rather than being
+  // left on "Registering" as if the network were still coming up.
+  if (r == api::Result::NeedsGithub) setPhase(NetPhase::NeedsGithub);
+  else if (r != api::Result::Failed) setPhase(NetPhase::Ready);
+  return r == api::Result::Updated || r == api::Result::Unchanged;
 }
 
 void netTask(void*) {
@@ -377,6 +380,14 @@ void serviceUi() {
                      wifiFailed ? "Check the password and try again"
                                 : "NTP unreachable; TLS cannot verify");
       break;
+    case NetPhase::NeedsGithub: {
+      String where = settings::baseUrl();
+      where.replace("https://", "");
+      where.replace("http://", "");
+      const String detail = String("at ") + where;
+      ui::showStatus("Connect GitHub", detail.c_str());
+      break;
+    }
     default: break;
   }
 }

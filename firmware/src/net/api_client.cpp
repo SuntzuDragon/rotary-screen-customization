@@ -152,6 +152,12 @@ Result poll(Stats& out) {
     http.end();
     return Result::Unchanged;
   }
+  if (code == 428) {
+    // The service is fine; nobody has connected GitHub to this dial yet.
+    devlog::logf("[net] poll -> no GitHub access yet\n");
+    http.end();
+    return Result::NeedsGithub;
+  }
   if (code != 200) {
     devlog::logf("[net] poll failed: %s\n", HTTPClient::errorToString(code).c_str());
     http.end();

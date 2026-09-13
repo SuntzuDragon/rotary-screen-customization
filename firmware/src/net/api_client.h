@@ -3,7 +3,11 @@
 
 namespace api {
 
-enum class Result { Updated, Unchanged, Failed };
+/**
+ * NeedsGithub: the service answered, but this dial has no GitHub access to
+ * fetch with -- nobody has connected an account to it yet.
+ */
+enum class Result { Updated, Unchanged, Failed, NeedsGithub };
 
 
 /**
