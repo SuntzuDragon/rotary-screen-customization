@@ -90,8 +90,11 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
 /* .stack and .rows set display, which would otherwise beat the hidden
    attribute's UA rule. */
 [hidden] { display: none !important; }
-.split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
-@media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+/* minmax(0, …) and min-width:0 let a column be narrower than its longest
+   unbroken line, so a long repo name truncates instead of widening the page. */
+.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.split > * { min-width: 0; }
+@media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 /* Left column: preview, device bar, Push. */
 .side { display: flex; flex-direction: column; gap: 14px; }
@@ -183,11 +186,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .repo-main input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 .repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-main .tag { margin-left: auto; padding-left: 10px; }
+.repo-main .tag { margin-left: auto; padding-left: 10px; flex-shrink: 0; white-space: nowrap; }
 
 .grip {
   color: var(--muted); cursor: grab; font-size: 15px; line-height: 1;
-  user-select: none; padding: 2px 2px 2px 8px;
+  user-select: none; padding: 2px 2px 2px 8px; flex-shrink: 0;
 }
 .grip:active { cursor: grabbing; }
 .repo-row.pick:hover .grip { color: var(--fg); }
