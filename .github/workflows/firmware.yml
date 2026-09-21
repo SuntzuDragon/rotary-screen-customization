@@ -119,20 +119,12 @@ jobs:
         working-directory: firmware
         run: pio run -e crowpanel128
 
-      # One merged image from 0x0 means the browser flasher needs a single part
-      # and no partition offset arithmetic.
+      # Shared with ci.yml, which runs it on every pull request, so this step
+      # has already been exercised before any release depends on it.
       - name: Merge image
         if: steps.gate.outputs.publish == 'true'
-        working-directory: firmware/.pio/build/crowpanel128
-        run: |
-          BOOT_APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -1)
-          esptool --chip esp32s3 merge-bin -o merged.bin \
-            --flash-mode dio --flash-freq 80m --flash-size 16MB \
-            0x0 bootloader.bin \
-            0x8000 partitions.bin \
-            0xe000 "$BOOT_APP0" \
-            0x10000 firmware.bin
-          ls -l merged.bin
+        working-directory: firmware
+        run: tools/merge-image.sh
 
       # Only the publish path needs node: the compile check that runs on every
       # push to main does not touch the worker at all.
