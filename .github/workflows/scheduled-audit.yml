@@ -1,0 +1,97 @@
+name: Scheduled audit
+
+# The same two audits CI runs on every pull request, run weekly against main.
+#
+# A pull-request gate only stops a change from *introducing* a vulnerable
+# dependency. Advisories are published every day, so main can pick one up with
+# no change of its own -- this is what notices. The jobs mirror the Audit jobs
+# in ci.yml; keep the two in step.
+#
+# Note that GitHub disables scheduled workflows on a public repository after 60
+# days with no commits. Re-enable it from the Actions tab if that happens.
+on:
+  schedule:
+    - cron: '17 9 * * 1' # Mondays 09:17 UTC; off the hour, when runners are busiest
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-audit
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit (JavaScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
+
+  firmware-audit:
+    name: Audit (firmware toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: firmware/requirements.txt
+      # See the matching job in ci.yml for why this scans the installed
+      # environment rather than requirements.txt.
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r firmware/requirements.txt
+      - run: pip freeze --all > "$RUNNER_TEMP/requirements.txt"
+      - name: OSV-Scanner
+        run: >-
+          docker run --rm -v "$RUNNER_TEMP":/scan
+          ghcr.io/google/osv-scanner@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa
+          scan source --lockfile /scan/requirements.txt
+
+  # A failed scheduled run only emails whoever last edited the schedule, which
+  # nobody else would ever see. An issue is visible to everyone watching the
+  # repository. One issue is kept open and commented on each week, rather than
+  # a new one every Monday until someone acts.
+  report:
+    name: Report failure
+    needs: [audit, firmware-audit]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      JS_RESULT: ${{ needs.audit.result }}
+      FW_RESULT: ${{ needs.firmware-audit.result }}
+    steps:
+      - name: Open or update the tracking issue
+        run: |
+          set -euo pipefail
+          TITLE='Scheduled dependency audit is failing'
+          BODY=$(printf '%s\n\n%s\n%s\n\n%s\n' \
+            "The weekly audit of \`main\` failed: $RUN_URL" \
+            "- Audit (JavaScript): $JS_RESULT" \
+            "- Audit (firmware toolchain): $FW_RESULT" \
+            'The run log names each advisory and the version that fixes it.')
+          EXISTING=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" \
+              --label 'area: ci' --label 'priority: high'
+          fi
