@@ -249,7 +249,7 @@ function wifiCard(ctx: PageContext) {
       // A dial that just joined hands back its own settings URL. With no
       // session that link is the whole setup step; with one it is how we tell
       // whether the cable is even in the dial this page is editing.
-      const linked = next ? parseSession(next) : null;
+      const linked = next ? api.parseSession(next) : null;
       if (!ctx.session && linked) {
         adoptSession(next!);
         ctx.relink(linked);
@@ -574,7 +574,7 @@ function deviceBar(ctx: PageContext) {
   /** Device the cable is in, when it is provisioned enough to say. */
   const attachedId = () => {
     const conn = liveConnection();
-    return conn?.nextUrl ? (parseSession(conn.nextUrl)?.id ?? null) : null;
+    return conn?.nextUrl ? (api.parseSession(conn.nextUrl)?.id ?? null) : null;
   };
 
   const paint = () => {
@@ -1688,27 +1688,9 @@ async function page(session: api.Session | null) {
 
 /* --------------------------------- boot --------------------------------- */
 
-/**
- * Take the device id + secret out of the URL Improv handed back. Returns null
- * for anything that is not one of our own settings URLs.
- */
-function parseSession(next: string): api.Session | null {
-  try {
-    const url = new URL(next, location.href);
-    if (url.origin !== location.origin) return null;
-    const params = new URLSearchParams(url.hash.replace(/^#/, ''));
-    const id = params.get('d');
-    const key = params.get('k');
-    if (!id || !key) return null;
-    return { id, key };
-  } catch {
-    return null;
-  }
-}
-
 /** As above, and remember it. Reading the id is not the same as switching to it. */
 function adoptSession(next: string): api.Session | null {
-  const parsed = parseSession(next);
+  const parsed = api.parseSession(next);
   return parsed ? api.saveSession(parsed) : null;
 }
 

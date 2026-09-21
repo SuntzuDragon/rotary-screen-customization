@@ -187,6 +187,7 @@ pnpm format            # TypeScript, CSS, HTML, JSON, YAML (Prettier)
 pnpm format:firmware   # firmware C++ (clang-format, from firmware/requirements.txt)
 pnpm lint              # ESLint, type-aware; `pnpm lint:fix` applies the safe fixes
 pnpm typecheck
+pnpm test              # Vitest: the page in Node, the Worker in workerd with a local D1
 ```
 
 Put an `ENC_KEY` and a `GITHUB_CLIENT_SECRET` in `worker/.dev.vars`, which is

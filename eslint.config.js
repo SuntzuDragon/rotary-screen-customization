@@ -26,6 +26,9 @@ export default tseslint.config(
   },
   { files: ['web/**'], languageOptions: { globals: globals.browser } },
   { files: ['worker/**'], languageOptions: { globals: globals.serviceworker } },
-  // This file is plain JS and in no tsconfig, so it cannot be type-checked.
-  { files: ['eslint.config.js'], extends: [tseslint.configs.disableTypeChecked] },
+  // Tool config files belong to no tsconfig, so they cannot be type-checked.
+  {
+    files: ['eslint.config.js', '**/vitest.config.ts'],
+    extends: [tseslint.configs.disableTypeChecked],
+  },
 );

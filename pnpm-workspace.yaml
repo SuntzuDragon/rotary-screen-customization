@@ -9,3 +9,11 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - workerd
+
+# @cloudflare/vitest-pool-workers 0.22.0 bundles a miniflare that pins
+# sharp 0.35.2, which has high-severity advisories (GHSA-rgj7-g3m4-5g8c) fixed
+# in the 0.35.4 patch release -- the version wrangler's own miniflare already
+# uses. Test tooling only; nothing here ships. Scoped to the vulnerable range,
+# so it stops applying on its own once the pool updates. Delete it then.
+overrides:
+  'sharp@<0.35.4': 0.35.4

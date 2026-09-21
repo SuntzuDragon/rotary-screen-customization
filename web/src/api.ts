@@ -29,6 +29,28 @@ export function readSession(): Session | null {
   }
 }
 
+/**
+ * Take the device id + secret out of the URL Improv handed back. Returns null
+ * for anything that is not one of our own settings URLs.
+ *
+ * The origin check matters: the URL comes from the device, and a
+ * `javascript:` URL has origin "null", so it is refused here rather than
+ * reaching anything that would navigate to it.
+ */
+export function parseSession(next: string, here: string = location.href): Session | null {
+  try {
+    const url = new URL(next, here);
+    if (url.origin !== new URL(here).origin) return null;
+    const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const id = params.get('d');
+    const key = params.get('k');
+    if (!id || !key) return null;
+    return { id, key };
+  } catch {
+    return null;
+  }
+}
+
 export function saveSession(s: Session): Session {
   localStorage.setItem(LS, JSON.stringify(s));
   return s;
