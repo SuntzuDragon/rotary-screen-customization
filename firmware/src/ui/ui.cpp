@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include "compact.h"
 #include "star_img.h"
 #include "fw_version.h"
 
@@ -62,12 +63,6 @@ void formatAgo(int64_t epoch, char* out, size_t cap) {
   else if (d < 86400) snprintf(out, cap, "%lldh ago", d / 3600);
   else if (d < 86400LL * 365) snprintf(out, cap, "%lldd ago", d / 86400);
   else snprintf(out, cap, "%lldy ago", d / (86400LL * 365));
-}
-
-void compact(int32_t n, char* out, size_t cap) {
-  if (n < 10000) snprintf(out, cap, "%ld", static_cast<long>(n));
-  else if (n < 1000000) snprintf(out, cap, "%.1fk", n / 1000.0);
-  else snprintf(out, cap, "%.1fM", n / 1000000.0);
 }
 
 lv_obj_t* label(lv_obj_t* parent, const char* text, const lv_font_t* font, lv_color_t color,
