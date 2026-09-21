@@ -27,7 +27,7 @@ export default defineConfig({
   },
   build: { outDir: 'dist', emptyOutDir: true, target: 'es2022' },
   server: {
-    // `npm run dev` here talks to `wrangler dev` in ../worker. Set API_ORIGIN
+    // `pnpm dev` here talks to `wrangler dev` in ../worker. Set API_ORIGIN
     // to point it at the deployed Worker instead, for UI work that wants real
     // devices and real data without running the backend locally.
     proxy: {
