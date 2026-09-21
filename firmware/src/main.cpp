@@ -461,6 +461,8 @@ void setup() {
 }
 
 struct Swatch { const char* name; uint8_t r, g, b; };
+// Hand-aligned so the channels read as columns.
+// clang-format off
 static const Swatch kSwatches[] = {
     {"RED",   255, 0,   0},
     {"GREEN", 0,   255, 0},
@@ -469,6 +471,7 @@ static const Swatch kSwatches[] = {
     {"BG",    0x0B, 0x0D, 0x10},   // the UI background: should look near-black
     {"ORANGE",0xF7, 0x4C, 0x00},   // the UI accent
 };
+// clang-format on
 
 void loop() {
   for (const auto& s : kSwatches) {

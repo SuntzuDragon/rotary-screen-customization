@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   format:
-    name: Format
+    name: Format (Prettier)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +33,27 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Fix locally with `pnpm format`.
       - run: pnpm format:check
+
+  format-firmware:
+    name: Format (firmware)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: firmware/requirements.txt
+      # Only the formatter, not the whole toolchain -- but the version still
+      # comes from requirements.txt, so there is one pin rather than two.
+      - run: pip install "$(grep '^clang-format==' firmware/requirements.txt)"
+      # Fix locally with `pnpm format:firmware`. Files listed in
+      # firmware/.clang-format-ignore are skipped even when named here.
+      - run: >-
+          git ls-files firmware/src firmware/include | grep -E '\.(cpp|h)$' |
+          xargs clang-format --dry-run --Werror
 
   typecheck:
     name: Typecheck (${{ matrix.package }})

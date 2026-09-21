@@ -1,0 +1,14 @@
+# Google style, tuned to the code as it was already written so the one-time
+# reformat stays small. Run from the repo root: pnpm format:firmware
+BasedOnStyle: Google
+# Matches the 100 columns Prettier uses for the TypeScript half.
+ColumnLimit: 100
+# Include order can change what compiles in C++, and several files put
+# <Arduino.h> first on purpose. A formatter should not be reordering them.
+SortIncludes: Never
+# The code uses compact one-line forms deliberately -- `case X: foo(); break;`
+# tables and short if/else-if chains -- and they read better that way.
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortCaseLabelsOnASingleLine: true
+# Keeps pin and constant tables (board_pins.h) column-aligned.
+AlignConsecutiveMacros: Consecutive

@@ -13,7 +13,9 @@
     "dev": "pnpm --filter rotary-stats-web dev",
     "deploy": "pnpm --filter rotary-stats-worker deploy",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "format:firmware": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format -i",
+    "format:firmware:check": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format --dry-run --Werror"
   },
   "devDependencies": {
     "prettier": "^3.9.8"

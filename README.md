@@ -180,6 +180,13 @@ cd web    && pnpm dev                                    # site with HMR, /api p
 cd web    && API_ORIGIN=https://hdog.imcb.dev pnpm dev   # site against the live API
 ```
 
+CI checks formatting on every pull request. To fix it locally:
+
+```bash
+pnpm format            # TypeScript, CSS, HTML, JSON, YAML (Prettier)
+pnpm format:firmware   # firmware C++ (clang-format, from firmware/requirements.txt)
+```
+
 Put an `ENC_KEY` and a `GITHUB_CLIENT_SECRET` in `worker/.dev.vars`, which is
 gitignored. Connect GitHub only completes against the origin registered as the
 app's callback, so locally, paste a personal access token instead.

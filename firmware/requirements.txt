@@ -1,7 +1,11 @@
-# Build toolchain, pinned.
+# Build and formatting toolchain, pinned.
 #
 # A firmware build should be reproducible: the same tag must produce the same
 # image months from now. Unpinned tooling also meant no pip cache in CI, since
 # actions/setup-python needs a dependency file to hash.
 platformio==6.2.0
 esptool==5.3.1
+# Formatter for firmware/src and firmware/include (see firmware/.clang-format).
+# Pinned because clang-format output changes between major versions, and CI
+# checks against exactly this one.
+clang-format==23.1.1
