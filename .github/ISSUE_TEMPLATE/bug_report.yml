@@ -1,6 +1,6 @@
 name: Bug report
 description: Something behaves incorrectly, on the dial or in the settings page
-labels: ["bug"]
+labels: ['bug']
 body:
   - type: markdown
     attributes:

@@ -59,7 +59,9 @@ export async function connect(onStatus: (msg: string) => void = () => {}): Promi
 
   let state: { state: number; nextUrl?: string } | null = null;
   for (let attempt = 1; attempt <= 4 && !state; attempt++) {
-    onStatus(attempt === 1 ? 'Looking for the device…' : `Still looking… (attempt ${attempt} of 4)`);
+    onStatus(
+      attempt === 1 ? 'Looking for the device…' : `Still looking… (attempt ${attempt} of 4)`,
+    );
     state = await improv.currentState(4000);
   }
 
@@ -150,9 +152,7 @@ function announce() {
 
 export const liveConnection = () => live;
 
-export async function openShared(
-  onStatus: (msg: string) => void = () => {},
-): Promise<Connection> {
+export async function openShared(onStatus: (msg: string) => void = () => {}): Promise<Connection> {
   if (live) return live;
   const conn = await connect(onStatus);
   const inner = conn.close;

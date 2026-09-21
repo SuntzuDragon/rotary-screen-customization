@@ -11,6 +11,11 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm --filter rotary-stats-web build",
     "dev": "pnpm --filter rotary-stats-web dev",
-    "deploy": "pnpm --filter rotary-stats-worker deploy"
+    "deploy": "pnpm --filter rotary-stats-worker deploy",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.9.8"
   }
 }

@@ -167,10 +167,7 @@ export class ImprovRaw {
   }
 
   /** Wait for a frame matching `want`, or resolve null on timeout. */
-  private async awaitFrame(
-    want: (f: Frame) => boolean,
-    timeoutMs: number,
-  ): Promise<Frame | null> {
+  private async awaitFrame(want: (f: Frame) => boolean, timeoutMs: number): Promise<Frame | null> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const idx = this.frames.findIndex(want);
@@ -246,8 +243,7 @@ export class ImprovRaw {
 
     const f = await this.awaitFrame(
       (x) =>
-        (x.type === TYPE_RPC_RESULT && x.payload[0] === CMD_REFRESH) ||
-        x.type === TYPE_ERROR_STATE,
+        (x.type === TYPE_RPC_RESULT && x.payload[0] === CMD_REFRESH) || x.type === TYPE_ERROR_STATE,
       timeoutMs,
     );
     if (!f) return null;
@@ -273,7 +269,9 @@ export class ImprovRaw {
         const code = f.payload[0]!;
         if (code === 0) continue; // "no error" status, keep waiting
         throw new Error(
-          code === 0x03 ? 'the device could not join that network' : `device error 0x${code.toString(16)}`,
+          code === 0x03
+            ? 'the device could not join that network'
+            : `device error 0x${code.toString(16)}`,
         );
       }
       return decodeStrings(f.payload)[0];

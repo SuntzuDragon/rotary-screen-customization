@@ -79,9 +79,7 @@ export async function flashFirmware(
     const bytes = new Uint8Array(image);
     // A factory reset is simply not skipping NVS: the merged image has 0xFF
     // there, so writing it erases the partition.
-    const regions = opts.eraseNvs
-      ? [{ name: 'everything', start: 0x0, end: -1 }]
-      : REGIONS;
+    const regions = opts.eraseNvs ? [{ name: 'everything', start: 0x0, end: -1 }] : REGIONS;
 
     const fileArray = regions
       .filter((r) => r.start < bytes.length)

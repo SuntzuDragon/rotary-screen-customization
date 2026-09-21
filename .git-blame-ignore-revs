@@ -1,0 +1,6 @@
+# Formatting-only commits, skipped by `git blame` (GitHub applies this file
+# automatically; locally: git config blame.ignoreRevsFile .git-blame-ignore-revs).
+# These SHAs only survive if the PR is merged with a merge commit, not squashed.
+
+# Format the codebase with Prettier
+2a9d5053fa66838c5b781ad402d16d5a82991460

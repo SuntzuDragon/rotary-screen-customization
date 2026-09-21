@@ -58,7 +58,10 @@ export const putConfig = (s: Session, cfg: Partial<DeviceConfig>) =>
 export const getPreview = (s: Session) => call<DevicePayload>(s, 'preview');
 
 export const getRepos = (s: Session) =>
-  call<{ login: string; repos: { name: string; stars: number; lang: string | null }[] }>(s, 'repos');
+  call<{ login: string; repos: { name: string; stars: number; lang: string | null }[] }>(
+    s,
+    'repos',
+  );
 
 export const refresh = (s: Session) => call<{ ok: true }>(s, 'refresh', { method: 'POST' });
 
@@ -132,9 +135,11 @@ export async function uploadFirmware(s: Session, file: File) {
     body: file,
     headers: { 'content-type': 'application/octet-stream', 'x-device-key': s.key },
   });
-  const body = (await res.json().catch(() => null)) as
-    | { error?: string; version?: string; sha256?: string }
-    | null;
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    version?: string;
+    sha256?: string;
+  } | null;
   if (!res.ok) throw new Error(body?.error ?? `${res.status}`);
   return body as { version: string; sha256: string; size: number };
 }

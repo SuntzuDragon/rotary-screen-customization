@@ -99,7 +99,6 @@ function note(msg: string, kind: 'err' | 'ok' | 'info' = 'info') {
   return el('p', { class: `note note-${kind}` }, msg);
 }
 
-
 /**
  * Wi-Fi card. Also the setup step.
  *
@@ -157,7 +156,11 @@ function wifiCard(ctx: PageContext) {
       if (ssids.length === 0) throw new Error('no networks reported');
       select.replaceChildren(
         ...ssids.map((s) =>
-          el('option', { value: s.name }, `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`),
+          el(
+            'option',
+            { value: s.name },
+            `${s.name}${s.secured ? '' : ' (open)'}  ·  ${s.rssi}dBm`,
+          ),
         ),
       );
     } catch {
@@ -767,7 +770,10 @@ async function page(session: api.Session | null) {
     try {
       config = await api.getConfig(session);
       payload = await api.getPreview(session).catch(() => null);
-      status = await api.getStatus(session).then((s) => s.device).catch(() => null);
+      status = await api
+        .getStatus(session)
+        .then((s) => s.device)
+        .catch(() => null);
     } catch (err) {
       const retry = el('button', { class: 'ghost' }, 'Forget this dial');
       retry.onclick = () => {
@@ -853,7 +859,10 @@ async function page(session: api.Session | null) {
     try {
       const ok = await conn.improv.refresh();
       if (ok === null) {
-        paintHint('Cable attached, but this firmware predates instant push — flash a newer build.', 'info');
+        paintHint(
+          'Cable attached, but this firmware predates instant push — flash a newer build.',
+          'info',
+        );
         return false;
       }
       if (!ok) {
@@ -890,7 +899,8 @@ async function page(session: api.Session | null) {
   // Nothing to push until a dial is linked.
   pushCard.hidden = !session;
 
-  const dirty = () => JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
+  const dirty = () =>
+    JSON.stringify({ ...draft, updatedAt: 0 }) !== JSON.stringify({ ...config, updatedAt: 0 });
 
   const refreshDirty = () => {
     // The page wears the colour being edited, not the one last pushed: the
@@ -1169,9 +1179,9 @@ async function page(session: api.Session | null) {
       note(
         auto
           ? `Showing the ${Math.min(picked.length, MAX_DEVICE_REPOS)} most-starred, updated as ` +
-            'repos come and go. Untick above to choose and order them yourself.'
+              'repos come and go. Untick above to choose and order them yourself.'
           : `${picked.length} of ${MAX_DEVICE_REPOS} — drag to reorder. The dial shows them ` +
-            'in this order.',
+              'in this order.',
         auto ? 'info' : 'ok',
       ),
     );
@@ -1270,8 +1280,7 @@ async function page(session: api.Session | null) {
     // Offered once the list is long enough to need it -- and kept while a search
     // is in progress, so the box does not vanish from under the cursor.
     repoSearch.hidden = !listVisible || (allRepos.length <= SEARCH_AFTER && !query);
-    restDivider.textContent =
-      `all repos (${q ? `${shown.length} of ${allRepos.length}` : allRepos.length})`;
+    restDivider.textContent = `all repos (${q ? `${shown.length} of ${allRepos.length}` : allRepos.length})`;
 
     // Ticking a repo halfway down rebuilds this list; keep the scroll position
     // instead of jumping back to the top between additions.
@@ -1323,12 +1332,15 @@ async function page(session: api.Session | null) {
     class: 'range',
   }) as HTMLInputElement;
   rot.value = String(config.theme.rotSec);
-  const rotLabel = el('span', { class: 'tag' }, config.theme.rotSec ? `${config.theme.rotSec}s` : 'off');
+  const rotLabel = el(
+    'span',
+    { class: 'tag' },
+    config.theme.rotSec ? `${config.theme.rotSec}s` : 'off',
+  );
   rot.oninput = () => {
     rotLabel.textContent = rot.value === '0' ? 'off' : `${rot.value}s`;
   };
   rot.onchange = () => edit({ theme: { ...draft.theme, rotSec: Number(rot.value) } });
-
 
   /*
    * Whose GitHub access the dial uses.
@@ -1343,7 +1355,11 @@ async function page(session: api.Session | null) {
   const ghStatus = el('div', { class: 'status' });
   const ghConnect = el('button', { class: 'primary' }, 'Connect GitHub') as HTMLButtonElement;
   const ghDisconnect = el('button', { class: 'ghost' }, 'Disconnect') as HTMLButtonElement;
-  const ghInstall = el('a', { target: '_blank', rel: 'noreferrer' }, 'Choose which private or organization repos it can see');
+  const ghInstall = el(
+    'a',
+    { target: '_blank', rel: 'noreferrer' },
+    'Choose which private or organization repos it can see',
+  );
   const ghInstallRow = el('p', { class: 'muted' }, ghInstall);
 
   const tokenInput = el('input', {
@@ -1390,9 +1406,7 @@ async function page(session: api.Session | null) {
     // Connecting one account to a dial that shows another is normal -- you set
     // up a gift with your own access -- but then only the shown account's
     // public repos are reachable, and "your private repos" means nothing here.
-    const otherAccount = Boolean(
-      t?.login && t.login.toLowerCase() !== config.login.toLowerCase(),
-    );
+    const otherAccount = Boolean(t?.login && t.login.toLowerCase() !== config.login.toLowerCase());
     ghConnect.hidden = !t?.app || (connected && viaApp);
     ghConnect.textContent = connected ? 'Connect GitHub instead' : 'Connect GitHub';
     ghDisconnect.hidden = !t?.present;
@@ -1505,7 +1519,6 @@ async function page(session: api.Session | null) {
     }
     tokenSave.disabled = false;
   };
-
 
   // Once a session is stored the app goes straight here, with no route back to
   // the USB flow. Clearing Chrome's serial permission does not help -- that is
@@ -1636,12 +1649,7 @@ async function page(session: api.Session | null) {
   // Outside the fieldset on purpose: Wi-Fi is how an unlinked dial becomes a
   // linked one, and flashing needs Web Serial and nothing else -- it is what
   // you reach for when a device is too broken to link at all.
-  const alwaysOn = el(
-    'div',
-    { class: 'stack' },
-    wifiCard(pageCtx),
-    firmwareCard(session),
-  );
+  const alwaysOn = el('div', { class: 'stack' }, wifiCard(pageCtx), firmwareCard(session));
 
   const maintenance = el(
     'fieldset',
