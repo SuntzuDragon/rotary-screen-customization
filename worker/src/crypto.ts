@@ -16,12 +16,17 @@ export function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-const B64 = 'abcdefghijkmnpqrstuvwxyz23456789'; // no look-alikes: l/1/o/0
+/**
+ * Exactly 32 symbols, with no look-alikes (l/1/o/0). The count matters: each
+ * random byte keeps its low 5 bits, so every symbol is equally likely only
+ * because 32 divides 256. A 31- or 33-symbol set would bias every id.
+ */
+const B32 = 'abcdefghijkmnpqrstuvwxyz23456789';
 
 /** Short, unambiguous device id -- also readable off the screen if ever needed. */
 export function newDeviceId(): string {
   const b = crypto.getRandomValues(new Uint8Array(8));
-  return [...b].map((x) => B64[x % B64.length]).join('');
+  return [...b].map((x) => B32[x & 0x1f]).join('');
 }
 
 export function newSecret(): string {
