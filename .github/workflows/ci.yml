@@ -121,6 +121,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Also run weekly against main by scheduled-audit.yml; keep the two in step.
       # --audit-level=high on purpose: including low and moderate surfaces
       # routine transitive noise and makes this flaky for pull requests that
       # did not cause it.
