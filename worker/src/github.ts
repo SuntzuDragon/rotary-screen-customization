@@ -115,10 +115,10 @@ export async function fetchProfile(
   });
   if (!res.ok) throw new GitHubError(`graphql ${res.status}`, res.status);
 
-  const body = (await res.json()) as {
+  const body = await res.json<{
     data?: { user: unknown; viewer?: { login: string }; rateLimit?: { remaining: number } };
     errors?: { message: string; type?: string }[];
-  };
+  }>();
   if (body.errors?.length) {
     // A login that does not exist comes back as a NOT_FOUND error, not as an
     // empty user -- so without this it read as a generic failure, and a typo
@@ -176,9 +176,9 @@ const MAX_ORG_REPOS = 20;
 export async function fetchInstalledOrgRepos(token: string): Promise<RepoSnapshot[]> {
   const list = await fetch(`${API}/user/installations?per_page=100`, { headers: headers(token) });
   if (!list.ok) return [];
-  const { installations = [] } = (await list.json()) as {
+  const { installations = [] } = await list.json<{
     installations?: { id: number; account?: { type?: string } | null }[];
-  };
+  }>();
 
   const candidates: { fullName: string; stars: number }[] = [];
   for (const inst of installations) {
@@ -189,14 +189,14 @@ export async function fetchInstalledOrgRepos(token: string): Promise<RepoSnapsho
       headers: headers(token),
     });
     if (!res.ok) continue;
-    const { repositories = [] } = (await res.json()) as {
+    const { repositories = [] } = await res.json<{
       repositories?: {
         full_name: string;
         fork: boolean;
         archived?: boolean;
         stargazers_count?: number;
       }[];
-    };
+    }>();
     for (const r of repositories) {
       // Same rule as owned repos: no forks. Archived repos are frozen, not worth a card.
       if (!r.fork && !r.archived) {
@@ -235,7 +235,7 @@ export async function fetchInstalledOrgRepos(token: string): Promise<RepoSnapsho
   if (!res.ok) return [];
   // A repo removed since it was listed comes back null, with an error beside it.
   // The rest are still good, so `errors` is not treated as failure here.
-  const body = (await res.json()) as { data?: Record<string, GqlRepoNode | null> };
+  const body = await res.json<{ data?: Record<string, GqlRepoNode | null> }>();
   return Object.values(body.data ?? {})
     .filter((r): r is GqlRepoNode => Boolean(r))
     .map((r) => toRepoSnapshot(r, r.nameWithOwner));
@@ -254,7 +254,7 @@ export async function fetchFeed(token: string, login: string, limit = 12): Promi
   if (rem) lastRateRemaining = rem;
   if (!res.ok) return [];
 
-  const raw = (await res.json()) as { type: string; repo: { name: string }; created_at: string }[];
+  const raw = await res.json<{ type: string; repo: { name: string }; created_at: string }[]>();
   return raw
     .map((e) => ({ type: e.type, repo: e.repo.name, at: epoch(e.created_at) ?? 0 }))
     .slice(0, limit);
@@ -303,7 +303,7 @@ export async function verifyToken(token: string): Promise<string | null> {
       body: JSON.stringify({ query: '{ viewer { login } }' }),
     });
     if (!res.ok) return null;
-    const body = (await res.json()) as { data?: { viewer?: { login?: string } } };
+    const body = await res.json<{ data?: { viewer?: { login?: string } } }>();
     return body.data?.viewer?.login ?? null;
   } catch {
     return null;

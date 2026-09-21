@@ -4,3 +4,6 @@
 
 # Format the codebase with Prettier
 2a9d5053fa66838c5b781ad402d16d5a82991460
+
+# Format the firmware with clang-format
+5ab755ddce384c06834ffb1be0ef5fc95ef1113c

@@ -14,7 +14,7 @@ constexpr float kTau = 6.28318530718f;
 constexpr float kTop = -1.57079632679f;  // 12 o'clock
 
 lv_obj_t* gScreen = nullptr;
-lv_obj_t* gRoot = nullptr;   // rebuilt on every view change
+lv_obj_t* gRoot = nullptr;  // rebuilt on every view change
 lv_color_t gAccent;
 Stats gStats;
 bool gHasStats = false;
@@ -126,8 +126,7 @@ void positionDots(lv_obj_t* parent, lv_coord_t radius) {
     lv_obj_set_size(dot, d, d);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(
-        dot, active ? gAccent : lv_color_hex(head ? 0x5C6672 : 0x333B45), 0);
+    lv_obj_set_style_bg_color(dot, active ? gAccent : lv_color_hex(head ? 0x5C6672 : 0x333B45), 0);
     lv_obj_align(dot, LV_ALIGN_CENTER, static_cast<lv_coord_t>(cosf(a) * radius),
                  static_cast<lv_coord_t>(sinf(a) * radius));
   }
@@ -210,8 +209,7 @@ void buildRepo(uint8_t idx) {
   // centred and inside the glass whatever the repo name length.
   const lv_coord_t kTitleMax = 150;
   lv_point_t textSize;
-  lv_txt_get_size(&textSize, r.name, &lv_font_montserrat_20, 0, 0, LV_COORD_MAX,
-                  LV_TEXT_FLAG_NONE);
+  lv_txt_get_size(&textSize, r.name, &lv_font_montserrat_20, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
 
   lv_obj_t* row = lv_obj_create(gRoot);
   lv_obj_remove_style_all(row);
@@ -269,7 +267,8 @@ void buildActivity() {
 
     char head[24];
     if (e.delta > 0) snprintf(head, sizeof(head), "+%ld %s", static_cast<long>(e.delta), e.kind);
-    else if (e.delta < 0) snprintf(head, sizeof(head), "%ld %s", static_cast<long>(e.delta), e.kind);
+    else if (e.delta < 0)
+      snprintf(head, sizeof(head), "%ld %s", static_cast<long>(e.delta), e.kind);
     else snprintf(head, sizeof(head), "%s", e.kind);
 
     lv_obj_t* h = lv_label_create(gRoot);
@@ -467,7 +466,7 @@ bool showAbout(const char* deviceId, uint32_t flashedAt) {
     snprintf(when, sizeof(when), "flashed: not recorded");
   } else {
     const time_t t = static_cast<time_t>(flashedAt);
-    struct tm tm {};
+    struct tm tm{};
     gmtime_r(&t, &tm);
     char stamp[24];
     strftime(stamp, sizeof(stamp), "%d %b %Y", &tm);

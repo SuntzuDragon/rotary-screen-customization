@@ -9,7 +9,6 @@ namespace api {
  */
 enum class Result { Updated, Unchanged, Failed, NeedsGithub };
 
-
 /**
  * NTP. Must succeed before the first HTTPS request: certificate validity is
  * checked against the system clock, and a device that thinks it is 1970 fails

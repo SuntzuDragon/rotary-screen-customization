@@ -376,9 +376,9 @@ void serviceUi() {
     case NetPhase::Clock: ui::showStatus("Syncing clock", "NTP"); break;
     case NetPhase::Registering: ui::showStatus("Registering", detail); break;
     case NetPhase::Failed:
-      ui::showStatus(wifiFailed ? "Wi-Fi failed" : "Clock failed",
-                     wifiFailed ? "Check the password and try again"
-                                : "NTP unreachable; TLS cannot verify");
+      ui::showStatus(
+          wifiFailed ? "Wi-Fi failed" : "Clock failed",
+          wifiFailed ? "Check the password and try again" : "NTP unreachable; TLS cannot verify");
       break;
     case NetPhase::NeedsGithub: {
       String where = settings::baseUrl();
@@ -452,15 +452,22 @@ void setup() {
   devlog::captureIdfLogs();
   esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);
-  pinMode(PIN_PWR_EN1, OUTPUT); digitalWrite(PIN_PWR_EN1, HIGH);
-  pinMode(PIN_PWR_EN2, OUTPUT); digitalWrite(PIN_PWR_EN2, HIGH);
+  pinMode(PIN_PWR_EN1, OUTPUT);
+  digitalWrite(PIN_PWR_EN1, HIGH);
+  pinMode(PIN_PWR_EN2, OUTPUT);
+  digitalWrite(PIN_PWR_EN2, HIGH);
   gLcd.init();
   gLcd.setRotation(0);
   backlight::begin(90);
   gLcd.setTextSize(2);
 }
 
-struct Swatch { const char* name; uint8_t r, g, b; };
+struct Swatch {
+  const char* name;
+  uint8_t r, g, b;
+};
+// Hand-aligned so the channels read as columns.
+// clang-format off
 static const Swatch kSwatches[] = {
     {"RED",   255, 0,   0},
     {"GREEN", 0,   255, 0},
@@ -469,6 +476,7 @@ static const Swatch kSwatches[] = {
     {"BG",    0x0B, 0x0D, 0x10},   // the UI background: should look near-black
     {"ORANGE",0xF7, 0x4C, 0x00},   // the UI accent
 };
+// clang-format on
 
 void loop() {
   for (const auto& s : kSwatches) {
@@ -540,13 +548,12 @@ void setup() {
   esp_log_level_set("*", ESP_LOG_WARN);
   delay(300);  // let the USB CDC host attach before the first line
   devlog::logf("\n[boot] rotary-stats %s  reset=%d\n", FW_VERSION,
-                static_cast<int>(esp_reset_reason()));
+               static_cast<int>(esp_reset_reason()));
   devlog::logf("[boot] psram=%u bytes free, heap=%u bytes free\n",
-                static_cast<unsigned>(ESP.getFreePsram()),
-                static_cast<unsigned>(ESP.getFreeHeap()));
+               static_cast<unsigned>(ESP.getFreePsram()), static_cast<unsigned>(ESP.getFreeHeap()));
   settings::begin();
   devlog::logf("[boot] device=%s provisioned=%d url=%s\n", settings::deviceId().c_str(),
-                settings::hasWifi() ? 1 : 0, settings::baseUrl().c_str());
+               settings::hasWifi() ? 1 : 0, settings::baseUrl().c_str());
 
   // Board power rails must come up before anything else -- see board_pins.h.
   pinMode(PIN_PWR_EN1, OUTPUT);
@@ -673,8 +680,7 @@ void setup() {
       gStatsDirty = true;
       xSemaphoreGive(gStateMutex);
       devlog::logf("[boot] restored cached stats (%u bytes, %u repos)\n",
-                   static_cast<unsigned>(sizeof(cached)),
-                   static_cast<unsigned>(cached.repoCount));
+                   static_cast<unsigned>(sizeof(cached)), static_cast<unsigned>(cached.repoCount));
     }
   }
 
