@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 
 /**
- * Empty every table, keeping the schema.
+ * Empty every table (keeping the schema) and every KV key.
  *
  * @cloudflare/vitest-pool-workers documents isolated per-test storage, but
  * writes made through `SELF.fetch` persist from one test to the next within a
@@ -19,4 +19,11 @@ export async function resetDatabase() {
        AND name <> 'd1_migrations'`,
   ).all<{ name: string }>();
   await env.DB.batch(results.map(({ name }) => env.DB.prepare(`DELETE FROM "${name}"`)));
+
+  let cursor: string | undefined;
+  do {
+    const page = await env.DEVICES.list({ cursor });
+    await Promise.all(page.keys.map(({ name }) => env.DEVICES.delete(name)));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
 }
