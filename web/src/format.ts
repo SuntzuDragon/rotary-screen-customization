@@ -13,15 +13,24 @@ export function ago(epochSec: number | null, nowSec = Date.now() / 1000): string
   return `${Math.floor(d / (86400 * 365))}y ago`;
 }
 
-/** Keep big numbers inside the circle: 4548 -> 4548, 12400 -> 12.4k */
+/**
+ * Keep big numbers inside the circle: 4548 -> "4548", 12400 -> "12.4k",
+ * 123456 -> "123.5k", 1234567 -> "1.2M".
+ *
+ * Must match the dial exactly -- compact() in firmware/src/ui/compact.h, which
+ * format.test.ts compiles and compares against this. Rounding is done in whole
+ * numbers, half up, because toFixed and C's printf round an exact half
+ * differently: 12250 would read "12.3k" here and "12.2k" on the dial.
+ *
+ * The unit switches where rounding would carry into the next one, so 999,950
+ * reads "1.0M", not "1000.0k".
+ */
 export function compact(n: number): string {
   if (n < 10000) return String(n);
-  // The unit is chosen at the point where rounding would carry into the next
-  // one, not at the round number: deciding before rounding turned 99,999 into
-  // "100.0k" and 999,999 into "1000k" -- both wider than the circle allows.
-  if (n < 99_950) return `${(n / 1000).toFixed(1)}k`;
-  if (n < 999_500) return `${(n / 1000).toFixed(0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
+  const k = Math.floor((n + 50) / 100); // thousands, in tenths
+  if (k < 10000) return `${Math.floor(k / 10)}.${k % 10}k`;
+  const m = Math.floor((n + 50_000) / 100_000); // millions, in tenths
+  return `${Math.floor(m / 10)}.${m % 10}M`;
 }
 
 export const EVENT_LABEL: Record<string, string> = {
