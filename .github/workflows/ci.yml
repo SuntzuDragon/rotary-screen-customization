@@ -230,3 +230,10 @@ jobs:
       - name: Build
         working-directory: firmware
         run: pio run -e crowpanel128
+
+      # The release packaging step, run here because nothing else would: the
+      # release workflow only merges on a tag, so an esptool bump that broke
+      # merge-bin would otherwise first fail on the next release.
+      - name: Merge image
+        working-directory: firmware
+        run: tools/merge-image.sh
