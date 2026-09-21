@@ -1,0 +1,16 @@
+{
+  "name": "rotary-screen-customization",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm --filter rotary-stats-web build",
+    "dev": "pnpm --filter rotary-stats-web dev",
+    "deploy": "pnpm --filter rotary-stats-worker deploy"
+  }
+}
