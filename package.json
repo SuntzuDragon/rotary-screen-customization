@@ -17,7 +17,8 @@
     "format:firmware": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format -i",
     "format:firmware:check": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format --dry-run --Werror",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "pnpm -r test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
