@@ -19,12 +19,10 @@ export function widthAt(y: number, pad = 4): number {
 // The dots are the one constant across every screen, so they own a reserved
 // band at the bezel and nothing else may enter it.
 const DOTS_R = R - 9;
-const CONTENT_R = DOTS_R - 14;
 
 const TAU = Math.PI * 2;
-const TOP = -Math.PI / 2; // 12 o'clock
 
-interface Ctx2D extends CanvasRenderingContext2D {}
+type Ctx2D = CanvasRenderingContext2D;
 
 function font(ctx: Ctx2D, px: number, weight = 600) {
   ctx.font = `${weight} ${px}px Montserrat, "Segoe UI", system-ui, sans-serif`;

@@ -784,7 +784,10 @@ async function page(session: api.Session | null) {
         el(
           'section',
           { class: 'card' },
-          note(`Could not load settings: ${err instanceof Error ? err.message : err}`, 'err'),
+          note(
+            `Could not load settings: ${err instanceof Error ? err.message : String(err)}`,
+            'err',
+          ),
           retry,
         ),
       );
@@ -992,7 +995,7 @@ async function page(session: api.Session | null) {
   for (const id of Object.keys(DECK_LABEL) as DeckId[]) {
     const cb = el('input', { type: 'checkbox' });
     cb.checked = draft.decks.includes(id);
-    cb.onchange = async () => {
+    cb.onchange = () => {
       const next = (Object.keys(DECK_LABEL) as DeckId[]).filter((d) =>
         d === id ? cb.checked : draft.decks.includes(d),
       );

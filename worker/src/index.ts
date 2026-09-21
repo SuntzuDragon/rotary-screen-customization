@@ -40,7 +40,7 @@ import {
   type GithubAuthRow,
 } from './store';
 import { decryptSecret, encryptSecret, safeEqual, sha256Hex } from './crypto';
-import { ALL_DECKS, MAX_DEVICE_REPOS, defaultConfig } from './types';
+import { ALL_DECKS, MAX_DEVICE_REPOS } from './types';
 import type { DeckId, DeviceConfig, Env, Theme } from './types';
 
 /** New identities per hour, account-wide. A real device registers once. */
@@ -345,6 +345,9 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     const viewer =
       /^[a-z0-9]{4,32}$/.test(asker) && (await authorised(env, asker, req)) ? asker : null;
     const index = await getFirmwareIndex(env, viewer);
+    // `||`, not `??`: an empty `?v=` must fall through to the latest build.
+    // `??` would keep the empty string, match no version, and 404 the image.
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const wanted = url.searchParams.get('v') || index?.latest || '';
     const meta = index?.versions.find((v) => v.version === wanted) ?? null;
 
@@ -801,7 +804,7 @@ export default {
    * Fixed-schedule refresh. This is what bounds GitHub API usage: devices poll
    * warm KV and never trigger an upstream request themselves.
    */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): void {
     ctx.waitUntil(
       (async () => {
         const ids = await listDeviceIds(env);
