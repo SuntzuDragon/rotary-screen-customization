@@ -121,6 +121,17 @@ jobs:
             0x10000 firmware.bin
           ls -l merged.bin
 
+      # Only the publish path needs node: the compile check that runs on every
+      # push to main does not touch the worker at all.
+      - uses: pnpm/action-setup@v4
+        if: steps.gate.outputs.publish == 'true'
+
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.publish == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
       # The image goes to KV (a 1.4MB blob is the wrong shape for a SQL row);
       # its metadata goes to D1, which is the index of record. Order matters:
       # write the blob first, so a version can never be advertised in the
@@ -137,9 +148,9 @@ jobs:
           SHA=$(sha256sum "$BIN" | cut -d' ' -f1)
           SIZE=$(stat -c%s "$BIN")
           NOW=$(date +%s)
-          npm ci
+          pnpm install --frozen-lockfile
 
-          npx wrangler kv key put "fw:bin:$VERSION" --binding DEVICES --remote --path "$BIN"
+          pnpm exec wrangler kv key put "fw:bin:$VERSION" --binding DEVICES --remote --path "$BIN"
 
           # Wait until the image is actually downloadable before advertising it.
           #
@@ -160,7 +171,7 @@ jobs:
             sleep 5
           done
 
-          npx wrangler d1 execute rotary-stats --remote --command "
+          pnpm exec wrangler d1 execute rotary-stats --remote --command "
             INSERT INTO firmware (version, sha256, size, source, uploaded_at, owner)
             VALUES ('$VERSION', '$SHA', $SIZE, 'ci', $NOW, NULL)
             ON CONFLICT(version) DO UPDATE SET sha256=excluded.sha256, size=excluded.size,

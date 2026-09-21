@@ -1,0 +1,11 @@
+packages:
+  - web
+  - worker
+
+# pnpm blocks dependency build scripts by default. These two genuinely need
+# theirs: esbuild fetches its platform binary (Vite will not build without it)
+# and workerd is the runtime wrangler executes locally. Anything added here
+# should be a deliberate decision, not a reflex to silence the warning.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

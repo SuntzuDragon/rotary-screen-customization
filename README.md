@@ -90,15 +90,15 @@ is roughly seventy dials at the one-minute poll.
 Already deployed. To stand up a fresh copy:
 
 ```bash
+pnpm install                                        # once, from the repo root
 cd worker
-npm install
-npx wrangler d1 create rotary-stats           # put the id in wrangler.toml
-npx wrangler kv namespace create DEVICES      # firmware images; put the id in wrangler.toml
-for f in migrations/*.sql; do npx wrangler d1 execute rotary-stats --remote --file "$f"; done
-npx wrangler secret put GITHUB_CLIENT_SECRET  # see below
-npx wrangler secret put ENC_KEY               # openssl rand -base64 32
-cd ../web && npm install && npm run build     # the Worker serves web/dist
-cd ../worker && npx wrangler deploy
+pnpm exec wrangler d1 create rotary-stats           # put the id in wrangler.toml
+pnpm exec wrangler kv namespace create DEVICES      # firmware images; put the id in wrangler.toml
+for f in migrations/*.sql; do pnpm exec wrangler d1 execute rotary-stats --remote --file "$f"; done
+pnpm exec wrangler secret put GITHUB_CLIENT_SECRET  # see below
+pnpm exec wrangler secret put ENC_KEY               # openssl rand -base64 32
+cd .. && pnpm build                                 # the Worker serves web/dist
+cd worker && pnpm exec wrangler deploy
 ```
 
 **The GitHub App.** Register one under GitHub → Settings → Developer settings →
@@ -175,9 +175,9 @@ dial's settings link (`…/#d=<id>&k=<secret>`) works from any other device.
 ## Local development
 
 ```bash
-cd worker && npx wrangler dev                              # API + built site on :8787
-cd web    && npm run dev                                   # site with HMR, /api proxied to :8787
-cd web    && API_ORIGIN=https://hdog.imcb.dev npm run dev  # site against the live API
+cd worker && pnpm exec wrangler dev                      # API + built site on :8787
+cd web    && pnpm dev                                    # site with HMR, /api proxied to :8787
+cd web    && API_ORIGIN=https://hdog.imcb.dev pnpm dev   # site against the live API
 ```
 
 Put an `ENC_KEY` and a `GITHUB_CLIENT_SECRET` in `worker/.dev.vars`, which is
