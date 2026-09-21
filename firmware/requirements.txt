@@ -4,7 +4,7 @@
 # image months from now. Unpinned tooling also meant no pip cache in CI, since
 # actions/setup-python needs a dependency file to hash.
 platformio==6.2.0
-esptool==5.3.1
+esptool==5.4.0
 # Formatter for firmware/src and firmware/include (see firmware/.clang-format).
 # Pinned because clang-format output changes between major versions, and CI
 # checks against exactly this one.
