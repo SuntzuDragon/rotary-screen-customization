@@ -20,6 +20,19 @@ function flashAfter(writes: Write[], size: number): Uint8Array {
 
 const SIZE = 0x160000; // a realistic merged image, ~1.4MB
 
+/**
+ * Offset of the first byte where `a` and `b` differ, or -1 if they match.
+ *
+ * Deliberately not toEqual: Vitest's deep comparison takes seconds on arrays
+ * this size (2s locally, 4s on a CI runner), and on failure it would print a
+ * diff of 1.4MB rather than the one offset that matters.
+ */
+function firstDifference(a: Uint8Array, b: Uint8Array): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return i;
+  return a.length === b.length ? -1 : n;
+}
+
 describe('an ordinary flash', () => {
   const img = image(SIZE);
   const writes = planWrites(img, false);
@@ -36,8 +49,8 @@ describe('an ordinary flash', () => {
   });
 
   it('writes every other byte of the image, at its own address', () => {
-    expect(flash.subarray(0, NVS_START)).toEqual(img.subarray(0, NVS_START));
-    expect(flash.subarray(NVS_END)).toEqual(img.subarray(NVS_END));
+    expect(firstDifference(flash.subarray(0, NVS_START), img.subarray(0, NVS_START))).toBe(-1);
+    expect(firstDifference(flash.subarray(NVS_END), img.subarray(NVS_END))).toBe(-1);
   });
 
   it('never writes the same byte twice', () => {
@@ -55,7 +68,7 @@ describe('a factory reset', () => {
     const writes = planWrites(img, true);
     expect(writes).toHaveLength(1);
     expect(writes[0]!.address).toBe(0);
-    expect(flashAfter(writes, SIZE)).toEqual(img);
+    expect(firstDifference(flashAfter(writes, SIZE), img)).toBe(-1);
   });
 });
 

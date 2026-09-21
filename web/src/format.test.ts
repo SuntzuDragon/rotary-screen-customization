@@ -87,7 +87,11 @@ describe('compact', () => {
   // page's preview must show exactly what the dial will. This compiles the
   // firmware's header natively and compares the two on every value below a
   // million, plus a spread of larger ones up to the 32-bit limit.
-  it('agrees exactly with the firmware', () => {
+  //
+  // It compiles C++ and checks over a million values, so it gets its own
+  // timeout: 0.6s on a normal runner, but 8.2s on a loaded one, which failed
+  // the first post-merge run against the 5s default.
+  it('agrees exactly with the firmware', { timeout: 120_000 }, () => {
     const values = Array.from({ length: 1_000_001 }, (_, n) => n);
     for (let n = 1_000_000; n < 2_147_483_647; n = Math.floor(n * 1.0003) + 7) values.push(n);
     values.push(2_147_483_647);
