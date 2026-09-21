@@ -8,8 +8,8 @@ constexpr size_t kLines = 48;
 constexpr size_t kLineLen = 160;
 
 char gRing[kLines][kLineLen];
-volatile size_t gHead = 0;   // next write slot
-volatile size_t gTail = 0;   // next unsent slot
+volatile size_t gHead = 0;  // next write slot
+volatile size_t gTail = 0;  // next unsent slot
 portMUX_TYPE gMux = portMUX_INITIALIZER_UNLOCKED;
 }  // namespace
 

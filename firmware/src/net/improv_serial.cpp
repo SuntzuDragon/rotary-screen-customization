@@ -153,9 +153,15 @@ void ImprovSerial::sendScanResults() {
   // Strongest first: the network you are standing next to should be at the top.
   for (int i = 1; i < count; i++) {
     for (int j = i; j > 0 && rssi[j] > rssi[j - 1]; j--) {
-      const String n = names[j]; names[j] = names[j - 1]; names[j - 1] = n;
-      const int32_t r = rssi[j]; rssi[j] = rssi[j - 1]; rssi[j - 1] = r;
-      const bool sec = secured[j]; secured[j] = secured[j - 1]; secured[j - 1] = sec;
+      const String n = names[j];
+      names[j] = names[j - 1];
+      names[j - 1] = n;
+      const int32_t r = rssi[j];
+      rssi[j] = rssi[j - 1];
+      rssi[j - 1] = r;
+      const bool sec = secured[j];
+      secured[j] = secured[j - 1];
+      secured[j - 1] = sec;
     }
   }
 
@@ -192,13 +198,9 @@ void ImprovSerial::handleRpc(const uint8_t* data, uint8_t len) {
       }
       break;
 
-    case CMD_DEVICE_INFO:
-      sendDeviceInfo();
-      break;
+    case CMD_DEVICE_INFO: sendDeviceInfo(); break;
 
-    case CMD_SCAN:
-      sendScanResults();
-      break;
+    case CMD_SCAN: sendScanResults(); break;
 
     case CMD_REFRESH: {
       if (!_refresh) {
@@ -248,9 +250,7 @@ void ImprovSerial::handleRpc(const uint8_t* data, uint8_t len) {
       break;
     }
 
-    default:
-      sendError(ERR_UNKNOWN_CMD);
-      break;
+    default: sendError(ERR_UNKNOWN_CMD); break;
   }
 }
 

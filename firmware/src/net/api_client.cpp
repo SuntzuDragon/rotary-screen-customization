@@ -72,16 +72,15 @@ bool connectWifi(const String& ssid, const String& password, uint32_t timeoutMs)
     if (WiFi.status() == WL_CONNECTED) {
       devlog::logf("[net] wifi ok in %lums (%lu polls), ip=%s rssi=%d\n",
                    static_cast<unsigned long>(millis() - start),
-                   static_cast<unsigned long>(iterations),
-                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
+                   static_cast<unsigned long>(iterations), WiFi.localIP().toString().c_str(),
+                   WiFi.RSSI());
       return true;
     }
     // One line every 5s while waiting: enough to tell a slow association from a
     // stalled task in the shipped log, without flooding the ring.
     if (millis() - lastReport > 5000) {
       lastReport = millis();
-      devlog::logf("[net] still waiting: status=%d t=%lums\n",
-                   static_cast<int>(WiFi.status()),
+      devlog::logf("[net] still waiting: status=%d t=%lums\n", static_cast<int>(WiFi.status()),
                    static_cast<unsigned long>(millis() - start));
     }
     pump(200);
@@ -225,8 +224,8 @@ Result poll(Stats& out) {
   out.valid = true;
   gEtag = etag;
   devlog::logf("[net] parsed %u repos, %u events, accent=%06lX\n",
-                static_cast<unsigned>(out.repoCount), static_cast<unsigned>(out.eventCount),
-                static_cast<unsigned long>(out.accent));
+               static_cast<unsigned>(out.repoCount), static_cast<unsigned>(out.eventCount),
+               static_cast<unsigned long>(out.accent));
   return Result::Updated;
 }
 

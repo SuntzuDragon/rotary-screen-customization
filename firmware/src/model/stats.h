@@ -10,9 +10,9 @@ struct RepoStat {
   char name[40];
   char lang[16];
   char msg[72];
-  uint32_t langColor;   // 0xRRGGBB, 0 when unknown
+  uint32_t langColor;  // 0xRRGGBB, 0 when unknown
   int32_t stars, forks, openPRs, openIssues;
-  int64_t lastCommitAt; // epoch seconds, 0 = unknown
+  int64_t lastCommitAt;  // epoch seconds, 0 = unknown
 };
 
 struct EventStat {
@@ -33,10 +33,10 @@ struct Stats {
   EventStat events[kMaxEvents];
   uint8_t eventCount;
 
-  uint32_t accent, bg;   // 0xRRGGBB
-  uint8_t brightness;    // 5..100
-  uint16_t rotSec;       // 0 = manual only
-  bool deckEnabled[3];   // summary, repos, activity
+  uint32_t accent, bg;  // 0xRRGGBB
+  uint8_t brightness;   // 5..100
+  uint16_t rotSec;      // 0 = manual only
+  bool deckEnabled[3];  // summary, repos, activity
 
   /**
    * config.updatedAt this payload was built from, echoed back on the next poll
