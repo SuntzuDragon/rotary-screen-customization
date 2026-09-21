@@ -16,7 +16,11 @@ export function ago(epochSec: number | null, nowSec = Date.now() / 1000): string
 /** Keep big numbers inside the circle: 4548 -> 4548, 12400 -> 12.4k */
 export function compact(n: number): string {
   if (n < 10000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 100_000 ? 1 : 0)}k`;
+  // The unit is chosen at the point where rounding would carry into the next
+  // one, not at the round number: deciding before rounding turned 99,999 into
+  // "100.0k" and 999,999 into "1000k" -- both wider than the circle allows.
+  if (n < 99_950) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 999_500) return `${(n / 1000).toFixed(0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 

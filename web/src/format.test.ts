@@ -45,4 +45,26 @@ describe('compact', () => {
   ])('%i reads "%s"', (n, expected) => {
     expect(compact(n)).toBe(expected);
   });
+
+  // Where rounding carries into the next unit. These read "100.0k" and "1000k"
+  // before the fix -- wider than the round screen has room for.
+  it.each([
+    [99_950, '100k'],
+    [99_999, '100k'],
+    [999_500, '1.0M'],
+    [999_999, '1.0M'],
+  ])('%i rounds up into the next unit as "%s"', (n, expected) => {
+    expect(compact(n)).toBe(expected);
+  });
+
+  // Every value, not a sample: the widths that broke live in 50-number windows
+  // a stepped sweep can jump straight over.
+  it('never produces more than five characters, for every value below a million', () => {
+    let widest = { text: '', n: 0 };
+    for (let n = 10_000; n < 1_000_000; n++) {
+      const text = compact(n);
+      if (text.length > widest.text.length) widest = { text, n };
+    }
+    expect(widest.text.length, `compact(${widest.n}) = "${widest.text}"`).toBeLessThanOrEqual(5);
+  });
 });
