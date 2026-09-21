@@ -15,9 +15,15 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "format:firmware": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format -i",
-    "format:firmware:check": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format --dry-run --Werror"
+    "format:firmware:check": "git ls-files firmware/src firmware/include | grep -E '\\.(cpp|h)$' | xargs clang-format --dry-run --Werror",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
-    "prettier": "^3.9.8"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.8",
+    "typescript-eslint": "^8.70.0"
   }
 }
