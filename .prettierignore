@@ -1,0 +1,8 @@
+# Prose is hand-wrapped, and reformatting it mostly realigns tables. Keeping
+# Markdown out means a doc edit never has to satisfy a formatter.
+*.md
+
+pnpm-lock.yaml
+dist/
+.wrangler/
+firmware/
