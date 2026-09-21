@@ -1,0 +1,89 @@
+name: Design decision
+description: A direction that needs settling before any code is written
+labels: ["discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this where the right answer is not yet established and the cost of
+        building the wrong one is high. The output of the thread is a recorded
+        decision; implementation work is split out afterwards.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - firmware (the dial)
+        - web (the settings page)
+        - worker (API, sync, firmware hosting)
+        - hardware (board, enclosure)
+        - ci (builds, releases)
+        - spans several
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: State the decision required, in one or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background and current model
+      description: >
+        How it works today, and why. Much of the existing reasoning is recorded
+        in `docs/context.md` — worth checking before restating it, and worth
+        contradicting explicitly if it now looks wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problems with the current model
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: >
+        Each with its cost and what it forfeits. Options judged unworkable are
+        worth listing too, so they are explicitly rejected rather than
+        rediscovered later.
+      value: |
+        **Option A —**
+
+        **Option B —**
+
+        **Option C —**
+    validations:
+      required: true
+
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recommendation
+      description: Which option, and the reasoning. A recommendation is expected even where the matter is genuinely open.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Invariants and out of scope
+      description: >
+        What must remain true regardless of the option chosen, and what this
+        thread is explicitly not reopening.
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Other issues that should be settled first, or alongside this one.

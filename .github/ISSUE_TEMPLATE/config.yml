@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Device screen or capability idea
+    url: https://github.com/SuntzuDragon/rotary-screen-customization/issues/11
+    about: Open-ended ideas for what the dial shows and does belong in the roadmap thread, not a new issue.
+  - name: Design and architecture background
+    url: https://github.com/SuntzuDragon/rotary-screen-customization/blob/main/docs/context.md
+    about: Why things work the way they do, and the findings behind them. Worth reading before proposing a change.

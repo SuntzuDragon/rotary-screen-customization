@@ -1,0 +1,99 @@
+name: Bug report
+description: Something behaves incorrectly, on the dial or in the settings page
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe what happened rather than what you think caused it — the
+        diagnosis often changes once the failure is reproduced. A priority and
+        area label will be applied during triage.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Best guess is fine.
+      options:
+        - firmware (the dial)
+        - web (the settings page)
+        - worker (API, sync, firmware hosting)
+        - hardware (board, enclosure)
+        - ci (builds, releases)
+        - docs
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences stating the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behaviour
+      description: >
+        What actually happens. Include the verbatim error text or on-screen
+        message — paraphrased errors are frequently the wrong error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Plug the dial in over USB
+        2. Open https://hdog.imcb.dev in Chrome
+        3. Select Connect over USB
+        4. ...
+      description: >
+        Note whether the USB cable was connected — several code paths differ
+        between the wired and wireless routes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Firmware version and device id are shown by holding the knob for about a
+        second. On Linux, please also include the output of `groups`, `ls -l
+        /dev/tty{ACM,USB}*` and `systemctl status ModemManager` — see #1.
+      value: |
+        - OS / distribution:
+        - Browser and version:
+        - Firmware version:
+        - Device id:
+        - Cable connected at the time: yes / no
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        Browser console output, screenshots, photographs of the dial, or device
+        logs. Optional, but usually decides how quickly this gets resolved.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this behaviour
+          required: true

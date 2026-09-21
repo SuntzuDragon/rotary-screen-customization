@@ -1,0 +1,84 @@
+name: Feature or enhancement
+description: Propose a scoped change — a new capability, or an improvement to an existing one
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a change whose *direction* is not yet settled, use **Design
+        decision** instead — that template is built for weighing options before
+        anything is scoped.
+
+        For an open-ended device idea, add it to the roadmap thread (#11) rather
+        than opening a new issue.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - firmware (the dial)
+        - web (the settings page)
+        - worker (API, sync, firmware hosting)
+        - hardware (board, enclosure)
+        - ci (builds, releases)
+        - docs
+        - spans several
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences stating the proposed change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: >
+        What is currently difficult, impossible, or misleading. Describe the
+        situation rather than the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: >
+        Reference specific files or line numbers where you can — it makes the
+        scope far easier to assess.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        How a reviewer would confirm this is complete. Anything touching the
+        dial, serial provisioning or flashing generally needs verification on
+        real hardware.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including any you rejected, and why.
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and out of scope
+      description: >
+        Existing invariants this must not break. Established ones include:
+        `improv.ts` solely owns the serial port; D1 is the single source of
+        truth for configuration; Wi-Fi credentials never traverse the network;
+        flashing is never gated behind a session; firmware is flashed over USB,
+        not OTA. See `docs/context.md`.
