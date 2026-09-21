@@ -1,6 +1,8 @@
 name: Scheduled audit
 
-# The same two audits CI runs on every pull request, run weekly against main.
+# Runs weekly against main: the same two audits CI runs on every pull request,
+# plus a check for new advisories in the firmware's C/C++ libraries, which no
+# audit can reach.
 #
 # A pull-request gate only stops a change from *introducing* a vulnerable
 # dependency. Advisories are published every day, so main can pick one up with
@@ -59,6 +61,74 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP":/scan
           ghcr.io/google/osv-scanner@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa
           scan source --lockfile /scan/requirements.txt
+
+  # The firmware's C/C++ libraries are in no vulnerability database the audits
+  # above can read -- the PlatformIO registry is not indexed by OSV. Their
+  # maintainers do publish security advisories on GitHub, so this reads those
+  # directly and reports any from the past week.
+  #
+  # It reports rather than fails. Most advisories are in a component the dial
+  # never compiles (arduino-esp32's WebServer, say), and whether one applies is
+  # a judgement, not a check. The report lists the headers the firmware actually
+  # includes, read from the source at run time, so that judgement takes seconds.
+  firmware-advisories:
+    name: Firmware library advisories
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # Where each library in firmware/platformio.ini is developed, plus the
+      # Arduino core that espressif32@6.5.0 brings in. Keep in step with it.
+      UPSTREAM: >-
+        espressif/arduino-esp32
+        platformio/platform-espressif32
+        lvgl/lvgl
+        lovyan03/LovyanGFX
+        bblanchon/ArduinoJson
+        adafruit/Adafruit_NeoPixel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Report advisories published this week
+        run: |
+          set -euo pipefail
+          # Eight days, so a run that starts late never leaves a gap.
+          SINCE=$(date -u -d '8 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          FOUND=''
+          for repo in $UPSTREAM; do
+            OUT=$(gh api "repos/$repo/security-advisories?per_page=100" --jq \
+              ".[] | select(.published_at >= \"$SINCE\")
+                | \"- **$repo** — [\(.summary)](\(.html_url)) (\(.severity // \"unrated\"))\n  affects: \([.vulnerabilities[]? | .vulnerable_version_range // \"unstated\"] | join(\", \"))\n\"")
+            # $(...) drops trailing newlines, so separate each repo's entries explicitly.
+            if [ -n "$OUT" ]; then FOUND+="$OUT"$'\n\n'; fi
+          done
+          if [ -z "$FOUND" ]; then
+            echo "No advisories published since $SINCE." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          INCLUDES=$(grep -rhoE '#include <[^>]+>' firmware/src firmware/include \
+            | sed -E 's/#include <(.+)>/\1/' | sort -u | paste -sd' ' | sed 's/ /, /g')
+          BODY=$(printf '%s\n\n%s\n\n%s\n%s\n' \
+            "New security advisories in libraries the firmware is built from, published since ${SINCE%T*}:" \
+            "$FOUND" \
+            "The firmware includes: \`$INCLUDES\`." \
+            'An advisory in a component outside that list (for example WebServer, NetBIOS or an example sketch) is not compiled into the dial. Close this once each one is judged.')
+          echo "$BODY" >> "$GITHUB_STEP_SUMMARY"
+
+          TITLE='New security advisory in a firmware library'
+          EXISTING=$(gh issue list --state open --search "\"$TITLE\" in:title" \
+            --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" \
+              --label 'area: firmware' --label 'priority: medium'
+          fi
 
   # A failed scheduled run only emails whoever last edited the schedule, which
   # nobody else would ever see. An issue is visible to everyone watching the

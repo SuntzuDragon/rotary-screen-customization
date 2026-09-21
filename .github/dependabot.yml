@@ -1,0 +1,64 @@
+# Kept deliberately quiet: one grouped pull request per ecosystem, at most once
+# a month, and never a major version. Majors are real migrations here -- LVGL 9
+# and Arduino-ESP32 3.x rewrite the firmware's display and core APIs, vitest 5
+# is not yet supported by the Workers test pool -- so they are done on purpose,
+# not proposed by a bot.
+#
+# A release must also be a week old before it is proposed. A freshly published
+# version is where supply-chain attacks land -- a compromised release pulled in
+# before anyone has noticed -- and a week gives that time to surface. GitHub's
+# own default is three days.
+#
+# Security updates are separate: GitHub opens those as soon as an advisory
+# lands, whatever the schedule, and neither the cooldown nor grouping delays
+# them.
+#
+# Every PR runs the full CI, so a green one has been built, tested and audited.
+# Merging one that touches web/ or worker/ deploys, like any other merge.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ['*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    labels: ['chore']
+
+  # Bumps the pinned commit SHA and the version comment beside it together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    labels: ['chore', 'area: ci']
+
+  # The firmware build and formatting toolchain (platformio, esptool,
+  # clang-format). A clang-format major is excluded with the rest: its output
+  # changes between majors, which would fail Format (firmware) on every PR.
+  - package-ecosystem: pip
+    directory: /firmware
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      firmware-toolchain:
+        patterns: ['*']
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    labels: ['chore', 'area: firmware']

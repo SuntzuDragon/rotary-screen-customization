@@ -38,6 +38,13 @@ describe('newDeviceId', () => {
     for (let i = 0; i < 200; i++) expect(newDeviceId()).toMatch(/^[a-z0-9]{4,32}$/);
   });
 
+  // Each random byte keeps its low 5 bits, which is only unbiased because the
+  // alphabet has exactly 32 symbols. This fails if anyone changes its size.
+  it('draws evenly from exactly 32 symbols', () => {
+    const seen = new Set(Array.from({ length: 2000 }, newDeviceId).join(''));
+    expect(seen.size).toBe(32);
+  });
+
   it('never uses the look-alike characters l, 1, o or 0', () => {
     const ids = Array.from({ length: 500 }, newDeviceId).join('');
     expect(ids).not.toMatch(/[l1o0]/);
