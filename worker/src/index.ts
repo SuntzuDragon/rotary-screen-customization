@@ -199,8 +199,8 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
     if (!b.repos.every((r) => typeof r === 'string')) return 'repos must be strings';
     // GitHub caps repository names at 100 characters; anything longer is
     // padding aimed at the D1 row this gets stringified into.
-    if ((b.repos as string[]).some((r) => r.length > 100)) return 'repo name too long';
-    repos = (b.repos as string[]).slice(0, MAX_DEVICE_REPOS);
+    if (b.repos.some((r) => r.length > 100)) return 'repo name too long';
+    repos = b.repos.slice(0, MAX_DEVICE_REPOS);
   }
 
   let decks = current.decks;

@@ -116,16 +116,16 @@ function wifiCard(ctx: PageContext) {
   const heading = el('h2', {}, 'Wi-Fi');
   const current = el('div', { class: 'status' });
   const blurb = el('p', { class: 'muted' });
-  const changeBtn = el('button', { class: 'ghost' }, 'Change network') as HTMLButtonElement;
+  const changeBtn = el('button', { class: 'ghost' }, 'Change network');
 
-  const select = el('select', { class: 'input' }) as HTMLSelectElement;
+  const select = el('select', { class: 'input' });
   const password = el('input', {
     class: 'input',
     type: 'password',
     placeholder: 'Wi-Fi password',
-  }) as HTMLInputElement;
-  const go = el('button', { class: 'primary' }, 'Join this network') as HTMLButtonElement;
-  const cancel = el('button', { class: 'ghost' }, 'Cancel') as HTMLButtonElement;
+  });
+  const go = el('button', { class: 'primary' }, 'Join this network');
+  const cancel = el('button', { class: 'ghost' }, 'Cancel');
   const status = el('div', { class: 'status' });
   const form = el(
     'div',
@@ -165,7 +165,7 @@ function wifiCard(ctx: PageContext) {
       );
     } catch {
       // A dial that cannot scan can still be told. Same fallback as before.
-      manual = el('input', { class: 'input', placeholder: 'Network name' }) as HTMLInputElement;
+      manual = el('input', { class: 'input', placeholder: 'Network name' });
       select.replaceWith(manual);
     }
   };
@@ -300,7 +300,7 @@ function wifiCard(ctx: PageContext) {
  * that writes to shared storage.
  */
 function firmwareCard(session: api.Session | null) {
-  const fwSelect = el('select', { class: 'input' }) as HTMLSelectElement;
+  const fwSelect = el('select', { class: 'input' });
   const fwStatus = el('div', { class: 'status' });
   const fwBar = el('div', { class: 'bar-fill' });
   const fwBarWrap = el('div', { class: 'bar' }, fwBar);
@@ -308,14 +308,14 @@ function firmwareCard(session: api.Session | null) {
   const fwLog = el('pre', { class: 'log' });
   const fwLogBox = el('details', { class: 'adv' }, el('summary', {}, 'Flashing log'), fwLog);
   const flashBtn = el('button', { class: 'primary' }, 'Flash over USB');
-  const eraseBox = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const eraseBox = el('input', { type: 'checkbox' });
   const eraseRow = el(
     'label',
     { class: 'row' },
     eraseBox,
     el('span', {}, 'Also erase saved Wi-Fi and device identity (factory reset)'),
   );
-  const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' }) as HTMLInputElement;
+  const fwFile = el('input', { type: 'file', accept: '.bin', class: 'input' });
   const fwUpload = el('button', { class: 'ghost' }, 'Publish this file');
 
   let runningVersion: string | null = null;
@@ -567,8 +567,8 @@ function deviceBar(ctx: PageContext) {
     detail.className = 'devbar-detail';
     detail.replaceChildren(text);
   };
-  const action = el('button', { class: 'ghost' }, 'Connect over USB') as HTMLButtonElement;
-  const extra = el('button', { class: 'ghost' }, 'Switch') as HTMLButtonElement;
+  const action = el('button', { class: 'ghost' }, 'Connect over USB');
+  const extra = el('button', { class: 'ghost' }, 'Switch');
   const status = el('div', { class: 'status' });
 
   /** Device the cable is in, when it is provisioned enough to say. */
@@ -804,7 +804,7 @@ async function page(session: api.Session | null) {
   // instantly because it renders the draft locally.
   let draft: DeviceConfig = structuredClone(config);
   const pushNote = el('div', { class: 'status savebar' });
-  const pushBtn = el('button', { class: 'primary' }, 'Push to device') as HTMLButtonElement;
+  const pushBtn = el('button', { class: 'primary' }, 'Push to device');
 
   /*
    * USB is a shortcut, never a requirement.
@@ -881,13 +881,13 @@ async function page(session: api.Session | null) {
   };
 
   /* theme -- declared here because refreshDirty below drives the reset button */
-  const accent = el('input', { type: 'color', class: 'swatch' }) as HTMLInputElement;
+  const accent = el('input', { type: 'color', class: 'swatch' });
   accent.value = config.theme.accent;
   accent.oninput = () => edit({ theme: { ...draft.theme, accent: accent.value } });
 
   // A native colour picker has no way back to where you started, and the
   // default is not a colour anyone would find again by eye.
-  const accentReset = el('button', { class: 'ghost' }, 'Reset') as HTMLButtonElement;
+  const accentReset = el('button', { class: 'ghost' }, 'Reset');
   accentReset.onclick = () => {
     accent.value = DEFAULT_ACCENT;
     edit({ theme: { ...draft.theme, accent: DEFAULT_ACCENT } });
@@ -990,7 +990,7 @@ async function page(session: api.Session | null) {
   /* deck toggles */
   const deckList = el('div', { class: 'rows' });
   for (const id of Object.keys(DECK_LABEL) as DeckId[]) {
-    const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    const cb = el('input', { type: 'checkbox' });
     cb.checked = draft.decks.includes(id);
     cb.onchange = async () => {
       const next = (Object.keys(DECK_LABEL) as DeckId[]).filter((d) =>
@@ -1010,7 +1010,7 @@ async function page(session: api.Session | null) {
     class: 'input',
     placeholder: 'github username',
     autocomplete: 'off',
-  }) as HTMLInputElement;
+  });
   loginInput.value = draft.login;
   /*
    * Switching account is its own action, like connecting a token -- not part
@@ -1021,7 +1021,7 @@ async function page(session: api.Session | null) {
    * repo list, the preview and the repo order all belong to one account, so a
    * pending name left the page showing one account's data under another's.
    */
-  const loginBtn = el('button', { class: 'primary' }, 'Switch account') as HTMLButtonElement;
+  const loginBtn = el('button', { class: 'primary' }, 'Switch account');
   const loginStatus = el('div', { class: 'status' });
 
   const paintLogin = (msg?: string, tone?: 'ok' | 'info' | 'err') => {
@@ -1103,7 +1103,7 @@ async function page(session: api.Session | null) {
    * page. That used to be an invisible default you lost by clicking anything;
    * it is a checkbox now, and turning it off freezes the current list.
    */
-  const autoBox = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const autoBox = el('input', { type: 'checkbox' });
   const autoRow = el(
     'label',
     { class: 'row' },
@@ -1133,7 +1133,7 @@ async function page(session: api.Session | null) {
     placeholder: 'Search repos',
     autocomplete: 'off',
     spellcheck: 'false',
-  }) as HTMLInputElement;
+  });
   const restList = el('div', { class: 'repo-scroll' });
   const repoBody = el('div', {}, pickedList, restDivider, repoSearch, restList);
   repoBody.hidden = true;
@@ -1187,7 +1187,7 @@ async function page(session: api.Session | null) {
     );
 
     const row = (name: string, stars: number, isPicked: boolean, where: 'pinned' | 'list') => {
-      const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+      const cb = el('input', { type: 'checkbox' });
       cb.checked = isPicked;
       cb.disabled = auto || (!isPicked && picked.length >= MAX_DEVICE_REPOS);
       cb.onchange = () =>
@@ -1316,7 +1316,7 @@ async function page(session: api.Session | null) {
     min: '5',
     max: '100',
     class: 'range',
-  }) as HTMLInputElement;
+  });
   bright.value = String(config.theme.bright);
   const brightLabel = el('span', { class: 'tag' }, `${config.theme.bright}%`);
   // Update while dragging, save only on release, so a drag is one KV write.
@@ -1330,7 +1330,7 @@ async function page(session: api.Session | null) {
     min: '0',
     max: '60',
     class: 'range',
-  }) as HTMLInputElement;
+  });
   rot.value = String(config.theme.rotSec);
   const rotLabel = el(
     'span',
@@ -1353,8 +1353,8 @@ async function page(session: api.Session | null) {
    * app is registered, so it is shown open then.
    */
   const ghStatus = el('div', { class: 'status' });
-  const ghConnect = el('button', { class: 'primary' }, 'Connect GitHub') as HTMLButtonElement;
-  const ghDisconnect = el('button', { class: 'ghost' }, 'Disconnect') as HTMLButtonElement;
+  const ghConnect = el('button', { class: 'primary' }, 'Connect GitHub');
+  const ghDisconnect = el('button', { class: 'ghost' }, 'Disconnect');
   const ghInstall = el(
     'a',
     { target: '_blank', rel: 'noreferrer' },
@@ -1367,8 +1367,8 @@ async function page(session: api.Session | null) {
     type: 'password',
     placeholder: 'github_pat_...',
     autocomplete: 'off',
-  }) as HTMLInputElement;
-  const tokenSave = el('button', { class: 'ghost' }, 'Use this token') as HTMLButtonElement;
+  });
+  const tokenSave = el('button', { class: 'ghost' }, 'Use this token');
   const tokenStatus = el('div', { class: 'status' });
   const patBox = el(
     'details',
@@ -1395,7 +1395,7 @@ async function page(session: api.Session | null) {
     tokenInput,
     tokenSave,
     tokenStatus,
-  ) as HTMLDetailsElement;
+  );
 
   let tokenState: api.TokenState | null = null;
 
@@ -1643,7 +1643,7 @@ async function page(session: api.Session | null) {
       ghInstallRow,
       patBox,
     ),
-  ) as HTMLFieldSetElement;
+  );
   settings.disabled = !session;
 
   // Outside the fieldset on purpose: Wi-Fi is how an unlinked dial becomes a
@@ -1666,7 +1666,7 @@ async function page(session: api.Session | null) {
       ),
       forgetBtn,
     ),
-  ) as HTMLFieldSetElement;
+  );
   maintenance.disabled = !session;
 
   show(
