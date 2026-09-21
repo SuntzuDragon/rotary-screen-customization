@@ -71,7 +71,7 @@ jobs:
       - run: pnpm --filter rotary-stats-web build
 
   audit:
-    name: Audit
+    name: Audit (JavaScript)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,6 +87,37 @@ jobs:
       # routine transitive noise and makes this flaky for pull requests that
       # did not cause it.
       - run: pnpm audit --audit-level=high
+
+  firmware-audit:
+    name: Audit (firmware toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: firmware/requirements.txt
+      # requirements.txt pins only platformio and esptool. Scanning it directly
+      # makes OSV-Scanner resolve everything they pull in to the *oldest*
+      # versions that satisfy each constraint -- requests 2.9.2, uvicorn 0.9.1
+      # -- none of which pip ever installs, so the report is mostly phantoms.
+      # Scanning the frozen environment audits what actually ran. --all keeps
+      # pip itself in the list, and upgrading it first matters: the pip bundled
+      # with the runner's Python carries its own advisories.
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r firmware/requirements.txt
+      # Named requirements.txt so OSV-Scanner infers the format from it.
+      - run: pip freeze --all > "$RUNNER_TEMP/requirements.txt"
+      # The image is pinned by digest (v2.6.0) for the same reason the actions
+      # are pinned by SHA: a tag can be moved to point at something else.
+      - name: OSV-Scanner
+        run: >-
+          docker run --rm -v "$RUNNER_TEMP":/scan
+          ghcr.io/google/osv-scanner@sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa
+          scan source --lockfile /scan/requirements.txt
 
   actionlint:
     name: Actionlint
