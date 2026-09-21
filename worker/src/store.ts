@@ -67,9 +67,7 @@ async function migrateFromKv(env: Env, id: string): Promise<DeviceRow | null> {
 
   const pat = await env.DEVICES.get(legacyPatKey(id), 'text');
   if (pat) {
-    await env.DB.prepare(
-      'INSERT OR IGNORE INTO user_tokens (device_id, encrypted) VALUES (?, ?)',
-    )
+    await env.DB.prepare('INSERT OR IGNORE INTO user_tokens (device_id, encrypted) VALUES (?, ?)')
       .bind(id, pat)
       .run();
   }
@@ -94,7 +92,13 @@ export async function putAuth(env: Env, id: string, a: DeviceAuth) {
      ON CONFLICT(id) DO UPDATE SET secret_hash = excluded.secret_hash,
                                    last_seen   = excluded.last_seen`,
   )
-    .bind(id, a.secretHash, a.registeredAt, a.lastSeen, JSON.stringify(defaultConfig(env.DEFAULT_LOGIN)))
+    .bind(
+      id,
+      a.secretHash,
+      a.registeredAt,
+      a.lastSeen,
+      JSON.stringify(defaultConfig(env.DEFAULT_LOGIN)),
+    )
     .run();
 }
 
@@ -452,14 +456,16 @@ export async function getFirmwareIndex(
     `SELECT version, sha256, size, source, uploaded_at, owner FROM firmware
       WHERE owner IS NULL OR owner = ?
       ORDER BY uploaded_at DESC`,
-  ).bind(viewer).all<{
-    version: string;
-    sha256: string;
-    size: number;
-    source: string;
-    uploaded_at: number;
-    owner: string | null;
-  }>();
+  )
+    .bind(viewer)
+    .all<{
+      version: string;
+      sha256: string;
+      size: number;
+      source: string;
+      uploaded_at: number;
+      owner: string | null;
+    }>();
 
   const versions = (rows.results ?? []).map((r) => ({
     version: r.version,
@@ -473,8 +479,9 @@ export async function getFirmwareIndex(
 
   // fw_latest only ever names a CI build, so fall back to the newest one of
   // those rather than to versions[0], which could be the caller's own upload.
-  const latest = await env.DB.prepare("SELECT value FROM meta WHERE key = 'fw_latest'")
-    .first<{ value: string }>();
+  const latest = await env.DB.prepare("SELECT value FROM meta WHERE key = 'fw_latest'").first<{
+    value: string;
+  }>();
   const newestCi = versions.find((v) => v.owner === null);
   return { latest: latest?.value ?? newestCi?.version ?? versions[0]!.version, versions };
 }

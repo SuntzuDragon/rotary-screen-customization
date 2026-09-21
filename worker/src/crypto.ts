@@ -39,7 +39,11 @@ async function key(raw: string): Promise<CryptoKey> {
 
 export async function encryptSecret(encKey: string, plain: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(encKey), enc.encode(plain));
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    await key(encKey),
+    enc.encode(plain),
+  );
   return `${b64e(iv)}.${b64e(new Uint8Array(ct))}`;
 }
 

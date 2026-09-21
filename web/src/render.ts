@@ -82,8 +82,13 @@ function positionDots(ctx: Ctx2D, cards: Card[], cursor: number, accent: string)
     const active = i === cursor;
     ctx.beginPath();
     ctx.fillStyle = active ? accent : head ? '#5C6672' : '#333B45';
-    ctx.arc(CX + Math.cos(a) * radius, CY + Math.sin(a) * radius,
-            active ? 3.5 : head ? 2.5 : 1.5, 0, TAU);
+    ctx.arc(
+      CX + Math.cos(a) * radius,
+      CY + Math.sin(a) * radius,
+      active ? 3.5 : head ? 2.5 : 1.5,
+      0,
+      TAU,
+    );
     ctx.fill();
   });
 }
@@ -124,7 +129,7 @@ function deckSummary(ctx: Ctx2D, d: DevicePayload) {
 
   const hero = compact(d.p.contrib);
   const px = fitText(ctx, hero, widthAt(CY, 14), 62, 700);
-  const heroBaseline = CY + px * 0.30;
+  const heroBaseline = CY + px * 0.3;
   ctx.fillStyle = '#fff';
   ctx.fillText(hero, CX, heroBaseline);
 

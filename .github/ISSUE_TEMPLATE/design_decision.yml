@@ -1,6 +1,6 @@
 name: Design decision
 description: A direction that needs settling before any code is written
-labels: ["discussion"]
+labels: ['discussion']
 body:
   - type: markdown
     attributes:

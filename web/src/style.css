@@ -18,29 +18,59 @@
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   padding: 32px 20px 64px;
   background: radial-gradient(120% 90% at 50% 0%, #161b22 0%, var(--bg) 60%);
   color: var(--fg);
-  font: 500 14px/1.5 Montserrat, "Segoe UI", system-ui, sans-serif;
+  font:
+    500 14px/1.5 Montserrat,
+    'Segoe UI',
+    system-ui,
+    sans-serif;
   min-height: 100vh;
 }
 
-#app { max-width: 940px; margin: 0 auto; }
+#app {
+  max-width: 940px;
+  margin: 0 auto;
+}
 
-.hd { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.hd {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
 .hd-mark {
-  width: 38px; height: 38px; border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
   background: conic-gradient(from -90deg, var(--accent), #2b3340 70%, var(--accent));
   box-shadow: inset 0 0 0 5px var(--bg);
   flex: none;
 }
-h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
-.sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+h1 {
+  font-size: 19px;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+h2 {
+  font-size: 13px;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 
 .card {
   background: var(--panel);
@@ -48,56 +78,143 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
   border-radius: 14px;
   padding: 18px;
 }
-.stack { display: flex; flex-direction: column; gap: 14px; }
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 /* Fieldsets are used purely to disable a group of controls at once, so strip
    the browser's box off them. min-width:0 stops them refusing to shrink. */
-.fs { border: 0; padding: 0; margin: 0; min-width: 0; }
-.fs[disabled] { opacity: 0.45; }
+.fs {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.fs[disabled] {
+  opacity: 0.45;
+}
 /* Opacity is the hint; the disabled attribute is what actually stops input. */
-.fs[disabled] .card { background: #101318; }
+.fs[disabled] .card {
+  background: #101318;
+}
 
 /* device bar -- NOT .bar, which is already the flashing progress track */
-.devbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
-.devbar-text { flex: 1; min-width: 0; }
-.devbar-title { font-weight: 600; font-size: 14px; }
-.devbar-detail { color: var(--muted); font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
+.devbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+.devbar-text {
+  flex: 1;
+  min-width: 0;
+}
+.devbar-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.devbar-detail {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 2px;
+  line-height: 1.4;
+}
 /* A healthy dial's facts, as chips that wrap between facts rather than
    mid-phrase in the narrow column. */
-.devbar-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.chip {
-  padding: 3px 9px; border-radius: 999px;
-  background: #1b2027; border: 1px solid var(--line);
-  color: var(--muted); font-size: 12px;
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.devbar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
-.chip-ok { color: #66d19e; border-color: rgba(102, 209, 158, 0.35); }
+.chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #1b2027;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-ok {
+  color: #66d19e;
+  border-color: rgba(102, 209, 158, 0.35);
+}
 /* The bar lives in the 300px left column: the text keeps a sensible width, and
    the buttons drop onto their own line rather than squeezing it to nothing. */
-.devbar-text { flex-basis: 140px; }
+.devbar-text {
+  flex-basis: 140px;
+}
 /* The buttons always get their own full-width line under the text, the same
    width as the Push button below. */
-.devbar-actions { display: flex; gap: 8px; flex-basis: 100%; }
-.devbar-actions button { flex: 1; padding: 9px 12px; font-size: 13px; }
+.devbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-basis: 100%;
+}
+.devbar-actions button {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 13px;
+}
 /* Nothing to say: take no space, instead of a blank strip under the button. */
-.devbar .status:empty { display: none; }
+.devbar .status:empty {
+  display: none;
+}
 
-.dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; }
-.dot-ok { background: #66d19e; box-shadow: 0 0 0 3px rgba(102, 209, 158, 0.15); }
-.dot-idle { background: var(--accent); }
-.dot-warn { background: #ffb03c; box-shadow: 0 0 0 3px rgba(255, 176, 60, 0.15); }
-.dot-off { background: var(--line); }
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.dot-ok {
+  background: #66d19e;
+  box-shadow: 0 0 0 3px rgba(102, 209, 158, 0.15);
+}
+.dot-idle {
+  background: var(--accent);
+}
+.dot-warn {
+  background: #ffb03c;
+  box-shadow: 0 0 0 3px rgba(255, 176, 60, 0.15);
+}
+.dot-off {
+  background: var(--line);
+}
 /* .stack and .rows set display, which would otherwise beat the hidden
    attribute's UA rule. */
-[hidden] { display: none !important; }
+[hidden] {
+  display: none !important;
+}
 /* minmax(0, …) and min-width:0 let a column be narrower than its longest
    unbroken line, so a long repo name truncates instead of widening the page. */
-.split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
-.split > * { min-width: 0; }
-@media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.split {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.split > * {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 /* Left column: preview, device bar, Push. */
-.side { display: flex; flex-direction: column; gap: 14px; }
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 /* Side by side only: stick while the settings scroll, capped to the window so
    Push stays reachable on a short screen. Stacked on a phone it must do neither:
@@ -105,58 +222,135 @@ h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
    with Push hanging over the settings below. */
 @media (min-width: 761px) {
   .side {
-    position: sticky; top: 20px;
-    max-height: calc(100vh - 40px); overflow-y: auto;
-    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
   }
 }
 
-.muted { color: var(--muted); font-size: 13px; }
-.center { text-align: center; }
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+.center {
+  text-align: center;
+}
 
 /* The panel is 240x240. Showing it at 2x with nearest-neighbour keeps the
    preview honest about how chunky text actually looks on the hardware. */
-.preview { text-align: center; }
+.preview {
+  text-align: center;
+}
 .screen {
-  width: 280px; height: 280px;
+  width: 280px;
+  height: 280px;
   border-radius: 50%;
   image-rendering: pixelated;
   background: #000;
   border: 6px solid #1b2027;
-  box-shadow: 0 18px 40px rgba(0,0,0,0.55), inset 0 0 0 1px #2c333c;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px #2c333c;
   cursor: ns-resize;
   touch-action: none;
 }
 
 button {
-  font: inherit; font-weight: 600;
-  border-radius: 9px; padding: 10px 15px;
-  border: 1px solid transparent; cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 9px;
+  padding: 10px 15px;
+  border: 1px solid transparent;
+  cursor: pointer;
 }
-button:disabled { opacity: 0.5; cursor: default; }
-.primary { background: var(--accent); color: var(--accent-ink); width: 100%; margin-top: 6px; }
-.ghost { background: transparent; border-color: var(--line); color: var(--fg); }
-
-.input, .range, .swatch {
-  width: 100%; font: inherit;
-  background: #0f1317; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px;
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
-.swatch { height: 40px; padding: 4px; }
-.swatch-row { display: flex; gap: 8px; align-items: stretch; }
-.swatch-row .swatch { flex: 1; }
-.swatch-row button { white-space: nowrap; padding: 9px 13px; }
-.range { padding: 0; border: none; background: none; accent-color: var(--accent); }
-.lbl { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  width: 100%;
+  margin-top: 6px;
+}
+.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--fg);
+}
 
-.rows { display: flex; flex-direction: column; gap: 2px; }
-.row { display: flex; align-items: center; gap: 10px; padding: 6px 2px; }
-.row span:first-of-type { flex: 1; }
-.row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
-.tag { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.input,
+.range,
+.swatch {
+  width: 100%;
+  font: inherit;
+  background: #0f1317;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+.swatch {
+  height: 40px;
+  padding: 4px;
+}
+.swatch-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.swatch-row .swatch {
+  flex: 1;
+}
+.swatch-row button {
+  white-space: nowrap;
+  padding: 9px 13px;
+}
+.range {
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+.lbl {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 12px 0 5px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px;
+}
+.row span:first-of-type {
+  flex: 1;
+}
+.row input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.tag {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Unsaved changes: the accent edge is the cue to press Push. */
-.push-card.dirty { border-color: var(--accent); }
+.push-card.dirty {
+  border-color: var(--accent);
+}
 
 /* repo ordering
    A chosen repo is a card you can pick up; one that is not shown is a plain
@@ -164,57 +358,114 @@ button:disabled { opacity: 0.5; cursor: default; }
    can be dragged. */
 .repo-row {
   position: relative;
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; margin: 6px 0;
-  border: 1px solid transparent; border-radius: 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  margin: 6px 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
 }
 .repo-row.pick {
   background: #1b2027;
   border-color: #2b333d;
 }
-.repo-row.pick:hover { border-color: #3a444f; }
-.repo-row.unpick { opacity: 0.72; }
+.repo-row.pick:hover {
+  border-color: #3a444f;
+}
+.repo-row.unpick {
+  opacity: 0.72;
+}
 
 /* The full list below the pinned cards: plain rows, with the ones already on
    the dial marked by an accent edge, so they read as chosen without looking
    like cards you could pick up. */
-.repo-row.listed { background: transparent; border-color: transparent; }
-.repo-row.listed-on { box-shadow: inset 2px 0 0 var(--accent); }
-.repo-main {
-  display: flex; align-items: center; gap: 10px;
-  flex: 1; min-width: 0; cursor: pointer;
+.repo-row.listed {
+  background: transparent;
+  border-color: transparent;
 }
-.repo-main input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
-.repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-main .tag { margin-left: auto; padding-left: 10px; flex-shrink: 0; white-space: nowrap; }
+.repo-row.listed-on {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.repo-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.repo-main input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+.repo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-main .tag {
+  margin-left: auto;
+  padding-left: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .grip {
-  color: var(--muted); cursor: grab; font-size: 15px; line-height: 1;
-  user-select: none; padding: 2px 2px 2px 8px; flex-shrink: 0;
+  color: var(--muted);
+  cursor: grab;
+  font-size: 15px;
+  line-height: 1;
+  user-select: none;
+  padding: 2px 2px 2px 8px;
+  flex-shrink: 0;
 }
-.grip:active { cursor: grabbing; }
-.repo-row.pick:hover .grip { color: var(--fg); }
+.grip:active {
+  cursor: grabbing;
+}
+.repo-row.pick:hover .grip {
+  color: var(--fg);
+}
 
 /* The dragged row stays put as a ghost, so the list never jumps under you. */
-.repo-row.dragging { opacity: 0.35; border-style: dashed; }
+.repo-row.dragging {
+  opacity: 0.35;
+  border-style: dashed;
+}
 
 /* Minimal drop indicator: a line where the row will land. */
 .repo-row.drop-above::before,
 .repo-row.drop-below::after {
-  content: ''; position: absolute; left: 2px; right: 2px; height: 2px;
-  background: var(--accent); border-radius: 2px;
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
 }
-.repo-row.drop-above::before { top: -5px; }
-.repo-row.drop-below::after { bottom: -5px; }
+.repo-row.drop-above::before {
+  top: -5px;
+}
+.repo-row.drop-below::after {
+  bottom: -5px;
+}
 
 .rows-divider {
-  color: var(--muted); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.08em; margin: 14px 0 6px; padding-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 14px 0 6px;
+  padding-top: 12px;
   border-top: 1px solid var(--line);
 }
 
 /* Search narrows the list below it: the repos you could add. */
-.repo-search { margin: 2px 0 8px; }
+.repo-search {
+  margin: 2px 0 8px;
+}
 
 /* Only that list scrolls. The chosen cards stay pinned above it, so reordering
    by drag never happens inside a moving list. */
@@ -227,17 +478,34 @@ button:disabled { opacity: 0.5; cursor: default; }
   scrollbar-color: var(--line) transparent;
 }
 
-.status { min-height: 20px; }
-.note { font-size: 13px; margin: 10px 0 0; }
-.note-err { color: #ff8a6a; }
-.note-ok { color: #66d19e; }
-.note-info { color: var(--muted); }
+.status {
+  min-height: 20px;
+}
+.note {
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+.note-err {
+  color: #ff8a6a;
+}
+.note-ok {
+  color: #66d19e;
+}
+.note-info {
+  color: var(--muted);
+}
 
-a { color: var(--accent-text); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
 
 .warn {
-  font-size: 13px; line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--warn);
   background: var(--warn-bg);
   border: 1px solid var(--warn-line);
@@ -245,21 +513,57 @@ a:hover { text-decoration: underline; }
   padding: 10px 12px;
   margin: 0 0 12px;
 }
-.adv { margin-top: 14px; }
-.adv summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-.adv > *:not(summary) { margin-top: 10px; }
-esp-web-install-button { display: block; }
-
-.bar { height: 6px; background: #0f1317; border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
-.bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }
-.log {
-  margin: 0; max-height: 190px; overflow: auto;
-  background: #0b0e12; border: 1px solid var(--line); border-radius: 8px;
-  padding: 9px 11px; font-size: 11px; line-height: 1.45;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #9AA5B1; white-space: pre-wrap; word-break: break-all;
+.adv {
+  margin-top: 14px;
+}
+.adv summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.adv > *:not(summary) {
+  margin-top: 10px;
+}
+esp-web-install-button {
+  display: block;
 }
 
-.foot { font-size: 12px; margin-top: 4px; opacity: 0.75; }
+.bar {
+  height: 6px;
+  background: #0f1317;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 10px 0 4px;
+}
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.log {
+  margin: 0;
+  max-height: 190px;
+  overflow: auto;
+  background: #0b0e12;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 11px;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #9aa5b1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
-.savebar { margin-top: 10px; min-height: 18px; }
+.foot {
+  font-size: 12px;
+  margin-top: 4px;
+  opacity: 0.75;
+}
+
+.savebar {
+  margin-top: 10px;
+  min-height: 18px;
+}

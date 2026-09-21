@@ -32,7 +32,13 @@ function parseHex(hex: string): Rgb | null {
 }
 
 const toHex = ({ r, g, b }: Rgb) =>
-  `#${[r, g, b].map((v) => Math.round(clamp01(v / 255) * 255).toString(16).padStart(2, '0')).join('')}`;
+  `#${[r, g, b]
+    .map((v) =>
+      Math.round(clamp01(v / 255) * 255)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
 
 /** WCAG relative luminance. */
 function luminance({ r, g, b }: Rgb): number {

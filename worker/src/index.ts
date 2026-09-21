@@ -190,7 +190,8 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
   if (typeof body !== 'object' || body === null) return 'body must be an object';
   const b = body as Record<string, unknown>;
 
-  const login = typeof b.login === 'string' && /^[\w-]{1,39}$/.test(b.login) ? b.login : current.login;
+  const login =
+    typeof b.login === 'string' && /^[\w-]{1,39}$/.test(b.login) ? b.login : current.login;
 
   let repos = current.repos;
   if (b.repos === null) repos = null;
@@ -215,8 +216,10 @@ function sanitiseConfig(body: unknown, current: DeviceConfig): DeviceConfig | st
   const theme: Theme = {
     accent: typeof t.accent === 'string' && HEX.test(t.accent) ? t.accent : current.theme.accent,
     bg: typeof t.bg === 'string' && HEX.test(t.bg) ? t.bg : current.theme.bg,
-    bright: typeof t.bright === 'number' ? clamp(Math.round(t.bright), 5, 100) : current.theme.bright,
-    rotSec: typeof t.rotSec === 'number' ? clamp(Math.round(t.rotSec), 0, 120) : current.theme.rotSec,
+    bright:
+      typeof t.bright === 'number' ? clamp(Math.round(t.bright), 5, 100) : current.theme.bright,
+    rotSec:
+      typeof t.rotSec === 'number' ? clamp(Math.round(t.rotSec), 0, 120) : current.theme.rotSec,
   };
 
   return { login, repos, decks, theme, updatedAt: Math.floor(Date.now() / 1000) };
@@ -438,8 +441,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
         },
         bin,
       );
-      return json({ ok: true, version, sha256, size: bin.byteLength },
-        { headers: { 'access-control-allow-origin': '*' } });
+      return json(
+        { ok: true, version, sha256, size: bin.byteLength },
+        { headers: { 'access-control-allow-origin': '*' } },
+      );
     }
   }
 
@@ -473,9 +478,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     // Warm the cache immediately so the first poll has data to show.
     const { token, personal } = await tokenFor(env, id);
     if (token && !(await getSnapshot(env, snapshotScope(config.login, personal ? id : null)))) {
-      ctx.waitUntil(
-        refreshLogin(env, config.login, token, personal ? id : null).catch(() => {}),
-      );
+      ctx.waitUntil(refreshLogin(env, config.login, token, personal ? id : null).catch(() => {}));
     }
     return json({ ok: true, id });
   }
@@ -523,9 +526,8 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
 
     // What the dial says it is currently showing, echoed from the payload's cfg.
     const appliedHeader = Number(req.headers.get('x-config-applied'));
-    const configApplied = Number.isFinite(appliedHeader) && appliedHeader > 0
-      ? Math.floor(appliedHeader)
-      : null;
+    const configApplied =
+      Number.isFinite(appliedHeader) && appliedHeader > 0 ? Math.floor(appliedHeader) : null;
 
     const now = Math.floor(Date.now() / 1000);
     ctx.waitUntil(
@@ -594,8 +596,7 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
       // already stored and a blind put would burn a write for nothing.
       const existing = await getDeviceLog(env, id);
       const unchanged =
-        existing?.lines.length === lines.length &&
-        existing.lines.every((l, i) => l === lines[i]);
+        existing?.lines.length === lines.length && existing.lines.every((l, i) => l === lines[i]);
       if (lines.length && !unchanged) await putDeviceLog(env, id, lines);
       return json({ ok: true, stored: unchanged ? 0 : lines.length });
     }
@@ -750,8 +751,10 @@ async function handleApi(req: Request, env: Env, ctx: ExecutionContext): Promise
     const snap = await getSnapshot(env, scope);
     const age = snap ? Math.floor(Date.now() / 1000) - snap.fetchedAt : Infinity;
     if (age < 60) {
-      return json({ ok: true, skipped: 'too soon', age },
-        { headers: { 'access-control-allow-origin': '*' } });
+      return json(
+        { ok: true, skipped: 'too soon', age },
+        { headers: { 'access-control-allow-origin': '*' } },
+      );
     }
 
     await refreshLogin(env, config.login, token, personal ? id : null);

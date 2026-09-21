@@ -4,7 +4,10 @@ const API = 'https://api.github.com';
 const UA = 'rotary-stats-worker (+github.com/SuntzuDragon/rotary-screen-customization)';
 
 export class GitHubError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
   }
 }

@@ -1,6 +1,6 @@
 name: Feature or enhancement
 description: Propose a scoped change — a new capability, or an improvement to an existing one
-labels: ["enhancement"]
+labels: ['enhancement']
 body:
   - type: markdown
     attributes:
