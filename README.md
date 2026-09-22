@@ -210,3 +210,25 @@ app's callback, so locally, paste a personal access token instead.
 
 `docs/context.md` has the reasoning behind the design, and
 `docs/research-findings.md` the measurements behind these.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). Contributions are accepted under
+the same terms, per section 5 of the license.
+
+The firmware links libraries under their own licenses, which the binary carries
+with it:
+
+| Library | License |
+| --- | --- |
+| LVGL | MIT |
+| LovyanGFX | FreeBSD / BSD, with MIT-licensed Adafruit code |
+| ArduinoJson | MIT |
+| Adafruit NeoPixel | **LGPL-3.0** |
+| Arduino-ESP32 core | LGPL-2.1 |
+
+The two LGPL libraries carry a condition the permissive ones do not: anyone
+given a compiled image must also be able to relink it against their own build of
+that library. Publishing the firmware source, as this repo does, satisfies that.
+A closed-source build of this firmware would not — it would need to ship the
+object files, or drop those libraries.
